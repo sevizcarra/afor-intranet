@@ -1543,6 +1543,56 @@ export default function MatrizIntranet() {
                     style={{ width: `${proyecto.avance}%` }}
                   />
                 </div>
+
+                {/* Acciones del proyecto (solo admin) */}
+                {isAdmin && (
+                  <div className="flex items-center justify-end gap-1 mt-2 pt-2 border-t border-neutral-100 dark:border-neutral-700">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm('¿Cerrar este proyecto? Se marcará como Terminado.')) {
+                          const proyectoActual = proyectos.find(p => p.id === proyecto.id);
+                          saveProyecto({ ...proyectoActual, estado: 'Terminado' });
+                          showNotification('success', `Proyecto ${proyecto.id} cerrado`);
+                        }
+                      }}
+                      className="flex items-center gap-1 px-2 py-1 text-[10px] text-neutral-500 dark:text-neutral-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
+                      title="Cerrar proyecto"
+                    >
+                      <Check className="w-3 h-3" />
+                      <span className="hidden sm:inline">Cerrar</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const proyectoActual = proyectos.find(p => p.id === proyecto.id);
+                        const nuevoEstado = proyectoActual.estado === 'Pausado' ? 'Activo' : 'Pausado';
+                        saveProyecto({ ...proyectoActual, estado: nuevoEstado });
+                        showNotification('info', nuevoEstado === 'Pausado' ? `Proyecto ${proyecto.id} congelado` : `Proyecto ${proyecto.id} reactivado`);
+                      }}
+                      className="flex items-center gap-1 px-2 py-1 text-[10px] text-neutral-500 dark:text-neutral-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                      title="Congelar proyecto"
+                    >
+                      <Snowflake className="w-3 h-3" />
+                      <span className="hidden sm:inline">Congelar</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setProjectToDelete(proyecto);
+                        setDeleteConfirmOpen(true);
+                      }}
+                      className="flex items-center gap-1 px-2 py-1 text-[10px] text-neutral-500 dark:text-neutral-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                      title="Eliminar proyecto"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span className="hidden sm:inline">Eliminar</span>
+                    </button>
+                  </div>
+                )}
               </Card>
             ))}
           </div>
