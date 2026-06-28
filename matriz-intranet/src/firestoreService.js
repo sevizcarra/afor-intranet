@@ -541,3 +541,50 @@ export const subscribeToDuraciones = (callback) => {
     }
   });
 };
+
+// Guardar tarifas y recetas (motor paramétrico COT)
+export const saveTarifas = async (tarifas) => {
+  try {
+    await setDoc(doc(db, COLLECTIONS.CONFIG, 'tarifas'), {
+      tarifas: JSON.stringify(tarifas),
+      updatedAt: new Date().toISOString()
+    });
+    return true;
+  } catch (error) {
+    console.error('Error guardando tarifas:', error);
+    return false;
+  }
+};
+
+export const saveRecetas = async (recetas) => {
+  try {
+    await setDoc(doc(db, COLLECTIONS.CONFIG, 'recetas'), {
+      recetas: JSON.stringify(recetas),
+      updatedAt: new Date().toISOString()
+    });
+    return true;
+  } catch (error) {
+    console.error('Error guardando recetas:', error);
+    return false;
+  }
+};
+
+export const subscribeToTarifas = (callback) => {
+  return onSnapshot(doc(db, COLLECTIONS.CONFIG, 'tarifas'), (docSnap) => {
+    if (docSnap.exists()) {
+      try {
+        callback(JSON.parse(docSnap.data().tarifas));
+      } catch { callback(null); }
+    }
+  });
+};
+
+export const subscribeToRecetas = (callback) => {
+  return onSnapshot(doc(db, COLLECTIONS.CONFIG, 'recetas'), (docSnap) => {
+    if (docSnap.exists()) {
+      try {
+        callback(JSON.parse(docSnap.data().recetas));
+      } catch { callback(null); }
+    }
+  });
+};

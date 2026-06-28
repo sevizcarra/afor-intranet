@@ -33,7 +33,11 @@ import {
   deleteCotizacion as deleteCotizacionFS,
   subscribeToCotizaciones,
   saveDuraciones,
-  subscribeToDuraciones
+  subscribeToDuraciones,
+  saveTarifas,
+  saveRecetas,
+  subscribeToTarifas,
+  subscribeToRecetas
 } from './firestoreService';
 
 // ============================================
@@ -791,6 +795,14 @@ export default function MatrizIntranet() {
       if (data.duracionRevision) setDuracionRevision(data.duracionRevision);
     });
 
+    // Suscribir a tarifas y recetas (motor paramétrico COT)
+    const unsubTarifas = subscribeToTarifas((data) => {
+      if (data) setTarifas(data);
+    });
+    const unsubRecetas = subscribeToRecetas((data) => {
+      if (data) setRecetas(data);
+    });
+
     // Marcar como listo después de un momento
     setTimeout(() => {
       setIsLoading(false);
@@ -806,8 +818,28 @@ export default function MatrizIntranet() {
       unsubPresencia();
       unsubCotizaciones();
       unsubDuraciones();
+      unsubTarifas();
+      unsubRecetas();
     };
   }, []);
+
+  // ============================================
+  // AUTO-GUARDADO: Tarifas y Recetas en Firestore
+  // ============================================
+  const tarifasInitRef = React.useRef(false);
+  const recetasInitRef = React.useRef(false);
+  useEffect(() => {
+    if (!firestoreReady) return;
+    if (!tarifasInitRef.current) { tarifasInitRef.current = true; return; }
+    const timer = setTimeout(() => { saveTarifas(tarifas); }, 500);
+    return () => clearTimeout(timer);
+  }, [tarifas, firestoreReady]);
+  useEffect(() => {
+    if (!firestoreReady) return;
+    if (!recetasInitRef.current) { recetasInitRef.current = true; return; }
+    const timer = setTimeout(() => { saveRecetas(recetas); }, 500);
+    return () => clearTimeout(timer);
+  }, [recetas, firestoreReady]);
 
   // ============================================
   // PRESENCIA - Heartbeat y tracking de página
