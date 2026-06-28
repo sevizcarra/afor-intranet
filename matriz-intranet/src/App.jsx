@@ -4,7 +4,7 @@ import {
   ChevronRight, ChevronDown, ChevronLeft, TrendingUp, Calendar, Lock, Eye, EyeOff,
   Building2, User, DollarSign, FileText, Check, X, Pencil, Trash2, Settings,
   BarChart3, AlertTriangle, Printer, FileDown, UserPlus, Save, LogOut, Loader2,
-  Moon, Sun, Snowflake, ClipboardList, MessageSquare, Send, Circle, Wifi, Download, Upload, Database, Shield, Edit3
+  Moon, Sun, Snowflake, ClipboardList, MessageSquare, Send, Circle, Wifi, Download, Upload, Database, Shield, Edit3, History
 } from 'lucide-react';
 import {
   subscribeToProyectos,
@@ -1024,6 +1024,16 @@ export default function MatrizIntranet() {
   // Refs para campos de texto COT: persisten entre remounts sin causar re-render de App al escribir
   const cotClienteRef = React.useRef('');
   const cotProyectoNombreRef = React.useRef('');
+  // Estados posibles de una cotización
+  const COT_ESTADOS = [
+    { id: 'borrador', label: 'Borrador', color: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300' },
+    { id: 'firmada', label: 'Firmada', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
+    { id: 'enviada', label: 'Enviada', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+    { id: 'comentada', label: 'Comentada', color: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' },
+    { id: 'reenviada', label: 'Reenviada', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' },
+    { id: 'aceptada', label: 'Aceptada', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  ];
+  const [cotLogOpen, setCotLogOpen] = useState(null); // _docId de la COT con log abierto
   // Lista de cotizaciones guardadas en Firestore
   const [cotizaciones, setCotizaciones] = useState([]);
   // COT seleccionada para ver preview (desde listado guardado)
@@ -4011,76 +4021,136 @@ export default function MatrizIntranet() {
                       const fDesc = 1 - ((cot.descuento || 0) / 100);
                       const total = subtotal * fSimp * fDesc * 1.19;
                       const items = cot.excelData ? cot.excelData.slice(1).filter(r => r[0] && r[3]).length : 0;
+                      const estadoActual = cot.estado || (cot.firmada ? 'firmada' : 'borrador');
+                      const estadoInfo = COT_ESTADOS.find(e => e.id === estadoActual) || COT_ESTADOS[0];
+                      const historial = cot.historial || [];
+                      const logAbierto = cotLogOpen === cot._docId;
                       return (
-                        <div key={cot._docId} className="border border-neutral-200 dark:border-neutral-700 rounded-lg p-4 hover:border-orange-300 dark:hover:border-orange-700 transition-colors">
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <h4 className="text-neutral-800 dark:text-neutral-100 font-semibold truncate">{cot.proyectoNombre || 'Sin nombre'}</h4>
-                                {cot.firmada && <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs rounded-full font-medium">Firmada</span>}
+                        <div key={cot._docId} className="border border-neutral-200 dark:border-neutral-700 rounded-lg hover:border-orange-300 dark:hover:border-orange-700 transition-colors">
+                          <div className="p-4">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                  <h4 className="text-neutral-800 dark:text-neutral-100 font-semibold truncate">{cot.proyectoNombre || 'Sin nombre'}</h4>
+                                  {/* Selector de estado */}
+                                  <div className="relative">
+                                    <select
+                                      value={estadoActual}
+                                      onChange={async (e) => {
+                                        const nuevoEstado = e.target.value;
+                                        const ahora = new Date().toISOString();
+                                        const nuevoLog = [...historial, { estado: nuevoEstado, fecha: ahora, usuario: currentUser?.nombre || 'Admin' }];
+                                        const updated = { ...cot, estado: nuevoEstado, historial: nuevoLog, firmada: ['firmada','enviada','comentada','reenviada','aceptada'].includes(nuevoEstado) };
+                                        await saveCotizacion(updated);
+                                        showNotification('success', `Estado cambiado a "${COT_ESTADOS.find(x => x.id === nuevoEstado)?.label}"`);
+                                      }}
+                                      className={`${estadoInfo.color} text-xs font-medium rounded-full px-3 py-1 border-0 cursor-pointer appearance-none pr-6 focus:ring-2 focus:ring-orange-300`}
+                                      style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
+                                    >
+                                      {COT_ESTADOS.map(est => (
+                                        <option key={est.id} value={est.id}>{est.label}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-4 text-sm text-neutral-500 dark:text-neutral-400">
+                                  <span className="flex items-center gap-1"><Building2 className="w-3.5 h-3.5" /> {cot.cliente || '—'}</span>
+                                  <span className="flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> {items} ítem{items !== 1 ? 's' : ''}</span>
+                                  <span className="font-semibold text-orange-600">{total.toFixed(1)} UF</span>
+                                </div>
+                                <div className="text-xs text-neutral-400 dark:text-neutral-500 mt-1">
+                                  {cot.fechaCreacion ? new Date(cot.fechaCreacion).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                                  {cot.excelFileName && <span className="ml-2 opacity-70">({cot.excelFileName})</span>}
+                                </div>
                               </div>
-                              <div className="flex items-center gap-4 text-sm text-neutral-500 dark:text-neutral-400">
-                                <span className="flex items-center gap-1"><Building2 className="w-3.5 h-3.5" /> {cot.cliente || '—'}</span>
-                                <span className="flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> {items} ítem{items !== 1 ? 's' : ''}</span>
-                                <span className="font-semibold text-orange-600">{total.toFixed(1)} UF</span>
+                              <div className="flex items-center gap-1 ml-3">
+                                <button
+                                  onClick={() => setCotLogOpen(logAbierto ? null : cot._docId)}
+                                  className={`p-2 rounded-lg transition-colors ${logAbierto ? 'text-orange-600 bg-orange-50 dark:bg-orange-900/20' : 'text-neutral-500 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20'}`}
+                                  title="Historial"
+                                >
+                                  <History className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setCotCliente(cot.cliente || '');
+                                    setCotProyectoNombre(cot.proyectoNombre || '');
+                                    setCotExcelData(cot.excelData || null);
+                                    setCotExcelFileName(cot.excelFileName || '');
+                                    setCotFirma(cot.firmada || false);
+                                    setCotRevAEnabled(cot.revAEnabled !== false); setCotRevBEnabled(cot.revBEnabled !== false); setCotRev0Enabled(cot.rev0Enabled !== false);
+                                    setCotRevAPercent(cot.revAPercent ?? 70); setCotRevBPercent(cot.revBPercent ?? 20); setCotRev0Percent(cot.rev0Percent ?? 10);
+                                    setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0);
+                                    setCotShowPreview(true);
+                                    setCotViewingId(cot._docId);
+                                  }}
+                                  className="p-2 text-neutral-500 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded-lg transition-colors"
+                                  title="Ver preview"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setCotCliente(cot.cliente || '');
+                                    setCotProyectoNombre(cot.proyectoNombre || '');
+                                    setCotExcelData(cot.excelData || null);
+                                    setCotExcelFileName(cot.excelFileName || '');
+                                    setCotFirma(cot.firmada || false);
+                                    setCotRevAEnabled(cot.revAEnabled !== false); setCotRevBEnabled(cot.revBEnabled !== false); setCotRev0Enabled(cot.rev0Enabled !== false);
+                                    setCotRevAPercent(cot.revAPercent ?? 70); setCotRevBPercent(cot.revBPercent ?? 20); setCotRev0Percent(cot.rev0Percent ?? 10);
+                                    setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0);
+                                    setCotViewingId(cot._docId);
+                                    setCotMode('editar');
+                                  }}
+                                  className="p-2 text-neutral-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                                  title="Editar"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    if (window.confirm('¿Eliminar esta cotización?')) {
+                                      const ok = await deleteCotizacionFS(cot._docId);
+                                      if (ok) showNotification('success', 'Cotización eliminada');
+                                      else showNotification('error', 'Error al eliminar');
+                                    }
+                                  }}
+                                  className="p-2 text-neutral-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                                  title="Eliminar"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
                               </div>
-                              <div className="text-xs text-neutral-400 dark:text-neutral-500 mt-1">
-                                {cot.fechaCreacion ? new Date(cot.fechaCreacion).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
-                                {cot.excelFileName && <span className="ml-2 opacity-70">({cot.excelFileName})</span>}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-1 ml-3">
-                              <button
-                                onClick={() => {
-                                  setCotCliente(cot.cliente || '');
-                                  setCotProyectoNombre(cot.proyectoNombre || '');
-                                  setCotExcelData(cot.excelData || null);
-                                  setCotExcelFileName(cot.excelFileName || '');
-                                  setCotFirma(cot.firmada || false);
-                                  setCotRevAEnabled(cot.revAEnabled !== false); setCotRevBEnabled(cot.revBEnabled !== false); setCotRev0Enabled(cot.rev0Enabled !== false);
-                                  setCotRevAPercent(cot.revAPercent ?? 70); setCotRevBPercent(cot.revBPercent ?? 20); setCotRev0Percent(cot.rev0Percent ?? 10);
-                                  setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0);
-                                  setCotShowPreview(true);
-                                  setCotViewingId(cot._docId);
-                                }}
-                                className="p-2 text-neutral-500 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded-lg transition-colors"
-                                title="Ver preview"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setCotCliente(cot.cliente || '');
-                                  setCotProyectoNombre(cot.proyectoNombre || '');
-                                  setCotExcelData(cot.excelData || null);
-                                  setCotExcelFileName(cot.excelFileName || '');
-                                  setCotFirma(cot.firmada || false);
-                                  setCotRevAEnabled(cot.revAEnabled !== false); setCotRevBEnabled(cot.revBEnabled !== false); setCotRev0Enabled(cot.rev0Enabled !== false);
-                                  setCotRevAPercent(cot.revAPercent ?? 70); setCotRevBPercent(cot.revBPercent ?? 20); setCotRev0Percent(cot.rev0Percent ?? 10);
-                                  setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0);
-                                  setCotViewingId(cot._docId);
-                                  setCotMode('editar');
-                                }}
-                                className="p-2 text-neutral-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-                                title="Editar"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={async () => {
-                                  if (window.confirm('¿Eliminar esta cotización?')) {
-                                    const ok = await deleteCotizacionFS(cot._docId);
-                                    if (ok) showNotification('success', 'Cotización eliminada');
-                                    else showNotification('error', 'Error al eliminar');
-                                  }
-                                }}
-                                className="p-2 text-neutral-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                                title="Eliminar"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
                             </div>
                           </div>
+                          {/* Log de historial */}
+                          {logAbierto && (
+                            <div className="border-t border-neutral-200 dark:border-neutral-700 px-4 py-3 bg-neutral-50 dark:bg-neutral-800/50 rounded-b-lg">
+                              <div className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                <History className="w-3.5 h-3.5" /> Historial
+                              </div>
+                              {historial.length === 0 ? (
+                                <p className="text-xs text-neutral-400 dark:text-neutral-500 italic">Sin registros aún. Cambia el estado para iniciar el seguimiento.</p>
+                              ) : (
+                                <div className="space-y-1.5">
+                                  {[...historial].reverse().map((entry, i) => {
+                                    const estInfo = COT_ESTADOS.find(e => e.id === entry.estado) || COT_ESTADOS[0];
+                                    return (
+                                      <div key={i} className="flex items-center gap-2 text-xs">
+                                        <span className="text-neutral-400 dark:text-neutral-500 w-32 shrink-0">
+                                          {new Date(entry.fecha).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                          {' '}
+                                          {new Date(entry.fecha).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                        <span className={`${estInfo.color} px-2 py-0.5 rounded-full font-medium`}>{estInfo.label}</span>
+                                        <span className="text-neutral-400 dark:text-neutral-500">por {entry.usuario}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
