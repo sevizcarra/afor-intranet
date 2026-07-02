@@ -148,6 +148,7 @@ const DEFAULT_RECETAS = [
   { id: 'pla_gen', nombre: 'Plano general', tipoMatch: 'PLA', hh: { jefe: 0, lider: 2, ingeniero: 4, proyectista: 13, control: 1 } },
   { id: 'pla_det', nombre: 'Plano de detalle', tipoMatch: 'PLA DET', hh: { jefe: 0, lider: 2, ingeniero: 6, proyectista: 16, control: 1 } },
   { id: 'doc', nombre: 'Documento (memoria / EETT)', tipoMatch: 'DOC', hh: { jefe: 5, lider: 10, ingeniero: 12, proyectista: 0, control: 3 } },
+  { id: 'vis', nombre: 'Visita en terreno (por hora)', tipoMatch: 'VIS', hh: { jefe: 1, lider: 1, ingeniero: 0, proyectista: 0, control: 0 } },
 ];
 
 // ============================================
@@ -4024,10 +4025,11 @@ export default function MatrizIntranet() {
                       const subtotal = cot.excelData ? cot.excelData.slice(1).filter(r => r[0] && r[3]).reduce((sum, r) => {
                         const t = (r[1] || 'PLA GEN').toUpperCase();
                         const cant = parseInt(r[4]) || 1;
-                        const esCobroUnico = t.includes('VIS') || t.includes('REU INT') || t.includes('REU CTTAL');
+                        const esVisita = t.includes('VIS');
+                        const esCobroUnico = t.includes('REU INT') || t.includes('REU CTTAL');
                         const rec = matchReceta(t, cotRecetas);
-                        const precioUnit = esCobroUnico ? (t.includes('VIS') ? 25 : 1) : (rec ? calcPrecioVenta(rec, cotTarifas) : 20);
-                        return sum + (precioUnit * cant * (esCobroUnico ? 1 : revFactor));
+                        const precioUnit = esCobroUnico ? 1 : (rec ? calcPrecioVenta(rec, cotTarifas) : 20);
+                        return sum + (precioUnit * cant * ((esCobroUnico || esVisita) ? 1 : revFactor));
                       }, 0) : 0;
                       const fSimp = (cot.simplificado) ? 0.8 : 1.0;
                       const fDesc = 1 - ((cot.descuento || 0) / 100);
@@ -4611,9 +4613,10 @@ ${cotHtml}
                       {cotExcelData && cotExcelData.slice(1).filter(row => row[0] && row[3]).map((row, idx) => {
                         const tipo = (row[1] || 'PLA GEN').toUpperCase();
                         const cantidad = parseInt(row[4]) || 1;
-                        const esCobroUnico = tipo.includes('VIS') || tipo.includes('REU INT') || tipo.includes('REU CTTAL');
+                        const esVisita = tipo.includes('VIS');
+                        const esCobroUnico = tipo.includes('REU INT') || tipo.includes('REU CTTAL');
                         const receta = matchReceta(tipo, recetas);
-                        const precioUnit = esCobroUnico ? (tipo.includes('VIS') ? 25 : 1) : (receta ? calcPrecioVenta(receta, tarifas) : 20);
+                        const precioUnit = esCobroUnico ? 1 : (receta ? calcPrecioVenta(receta, tarifas) : 20);
                         const precioTotal = precioUnit * cantidad;
                         const bg = idx % 2 === 0 ? '#fafaf7' : '#f2f0eb';
                         return (
@@ -4621,12 +4624,19 @@ ${cotHtml}
                             <td style={{ padding: '8px 12px', borderBottom: '1px solid #e8e6e1', color: '#7a7a78', fontSize: '11px', fontWeight: '500' }}>{row[0]}</td>
                             <td style={{ padding: '8px 12px', borderBottom: '1px solid #e8e6e1', fontWeight: '500', color: '#0a0a0a' }}>{row[3]}</td>
                             <td style={{ padding: '8px 12px', borderBottom: '1px solid #e8e6e1', textAlign: 'center' }}>
-                              <span style={{ background: esCobroUnico ? '#e8e6e1' : 'transparent', color: esCobroUnico ? '#3a3a38' : '#b8470a', padding: '2px 10px', borderRadius: '2px', fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', border: esCobroUnico ? 'none' : '1px solid #b8470a' }}>{tipo}</span>
+                              <span style={{ background: (esCobroUnico || esVisita) ? '#e8e6e1' : 'transparent', color: (esCobroUnico || esVisita) ? '#3a3a38' : '#b8470a', padding: '2px 10px', borderRadius: '2px', fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', border: (esCobroUnico || esVisita) ? 'none' : '1px solid #b8470a' }}>{tipo}</span>
                             </td>
                             {(() => {
                               const enabledRevCount = (cotRevAEnabled ? 1 : 0) + (cotRevBEnabled ? 1 : 0) + (cotRev0Enabled ? 1 : 0);
                               const revFactor = ((cotRevAEnabled ? cotRevAPercent : 0) + (cotRevBEnabled ? cotRevBPercent : 0) + (cotRev0Enabled ? cotRev0Percent : 0)) / 100;
-                              const itemTotal = esCobroUnico ? precioTotal : (precioTotal * revFactor);
+                              if (esVisita) {
+                                return (
+                                  <>
+                                    {enabledRevCount > 0 && <td colSpan={enabledRevCount} style={{ padding: '8px 12px', borderBottom: '1px solid #e8e6e1', textAlign: 'center', color: '#7a7a78', fontSize: '10px', fontStyle: 'italic' }}>{cantidad} hrs</td>}
+                                    <td style={{ padding: '8px 12px', borderBottom: '1px solid #e8e6e1', textAlign: 'right', fontWeight: '600', color: '#0a0a0a' }}>{precioTotal.toFixed(1)}</td>
+                                  </>
+                                );
+                              }
                               if (esCobroUnico) {
                                 return (
                                   <>
@@ -4635,6 +4645,7 @@ ${cotHtml}
                                   </>
                                 );
                               }
+                              const itemTotal = precioTotal * revFactor;
                               return (
                                 <>
                                   {cotRevAEnabled && <td style={{ padding: '8px 12px', borderBottom: '1px solid #e8e6e1', textAlign: 'right', color: '#3a3a38' }}>{(precioTotal * cotRevAPercent / 100).toFixed(1)}</td>}
@@ -4654,10 +4665,11 @@ ${cotHtml}
                         const subtotalVenta = cotExcelData ? cotExcelData.slice(1).filter(row => row[0] && row[3]).reduce((sum, row) => {
                           const tipo = (row[1] || 'PLA GEN').toUpperCase();
                           const cantidad = parseInt(row[4]) || 1;
-                          const esCobroUnico = tipo.includes('VIS') || tipo.includes('REU INT') || tipo.includes('REU CTTAL');
+                          const esVisita = tipo.includes('VIS');
+                          const esCobroUnico = tipo.includes('REU INT') || tipo.includes('REU CTTAL');
                           const receta = matchReceta(tipo, recetas);
-                          const precioUnit = esCobroUnico ? (tipo.includes('VIS') ? 25 : 1) : (receta ? calcPrecioVenta(receta, tarifas) : 20);
-                          return sum + (precioUnit * cantidad * (esCobroUnico ? 1 : revFactor));
+                          const precioUnit = esCobroUnico ? 1 : (receta ? calcPrecioVenta(receta, tarifas) : 20);
+                          return sum + (precioUnit * cantidad * ((esCobroUnico || esVisita) ? 1 : revFactor));
                         }, 0) : 0;
                         const factorSimp = cotSimplificado ? 0.8 : 1.0;
                         const factorDesc = 1 - (cotDescuento / 100);
