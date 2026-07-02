@@ -4539,15 +4539,23 @@ export default function MatrizIntranet() {
                       pw.document.write(`<html><head><title>AFOR — Propuesta ${cotCliente}</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
-@page { size: landscape; margin: 8mm 12mm; }
+@page { size: landscape; margin: 6mm 10mm; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 100%; }
 body { font-family: 'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif; color: #0a0a0a; background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .no-print { display: none !important; }
 table { page-break-inside: auto; }
 tr { page-break-inside: avoid; }
+.cot-header { padding: 14px 36px 10px !important; }
+.cot-separator { margin: 0 36px !important; }
+.cot-info { padding: 10px 36px !important; gap: 24px !important; }
+.cot-section-title { padding: 6px 36px 4px !important; }
+.cot-table-wrap { padding: 4px 36px 8px !important; }
+.cot-condiciones { padding: 0 36px 8px !important; }
+.cot-footer { padding: 10px 36px 12px !important; }
+.firma-img { height: 50px !important; }
 </style></head><body>
-<div style="min-width:700px;max-width:900px;margin:0 auto;">
+<div style="min-width:700px;max-width:100%;margin:0 auto;">
 ${cotHtml}
 </div>
 </body></html>`);
@@ -4575,7 +4583,7 @@ ${cotHtml}
                 <div style={{ height: '3px', background: '#b8470a' }}></div>
 
                 {/* Header minimalista */}
-                <div style={{ padding: '32px 48px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div className="cot-header" style={{ padding: '32px 48px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
                     <img src="/logo-afor.png" alt="AFOR" style={{ height: '44px', marginBottom: '6px' }} />
                     <div style={{ fontSize: '10px', color: '#7a7a78', letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: '500' }}>Propuesta de Servicios Profesionales</div>
@@ -4587,10 +4595,10 @@ ${cotHtml}
                 </div>
 
                 {/* Separador fino */}
-                <div style={{ margin: '0 48px', height: '1px', background: '#e8e6e1' }}></div>
+                <div className="cot-separator" style={{ margin: '0 48px', height: '1px', background: '#e8e6e1' }}></div>
 
                 {/* Info proyecto y cliente - estilo elegante */}
-                <div style={{ padding: '24px 48px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
+                <div className="cot-info" style={{ padding: '24px 48px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
                   <div>
                     <div style={{ fontSize: '9px', color: '#7a7a78', textTransform: 'uppercase', letterSpacing: '1.2px', fontWeight: '600', marginBottom: '6px' }}>Proyecto</div>
                     <div style={{ fontSize: '20px', fontWeight: '600', color: '#0a0a0a', letterSpacing: '-0.3px', lineHeight: '1.2' }}>{cotProyectoNombre || '—'}</div>
@@ -4602,7 +4610,7 @@ ${cotHtml}
                 </div>
 
                 {/* Título sección con acento */}
-                <div style={{ padding: '12px 48px 8px' }}>
+                <div className="cot-section-title" style={{ padding: '12px 48px 8px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <div style={{ width: '28px', height: '2px', background: '#b8470a' }}></div>
                     <div style={{ fontSize: '10px', fontWeight: '600', color: '#b8470a', textTransform: 'uppercase', letterSpacing: '2px' }}>
@@ -4612,7 +4620,7 @@ ${cotHtml}
                 </div>
 
                 {/* Tabla de items - estilo limpio */}
-                <div style={{ padding: '12px 48px 20px' }}>
+                <div className="cot-table-wrap" style={{ padding: '12px 48px 20px' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                     <thead>
                       <tr>
@@ -4737,7 +4745,7 @@ ${cotHtml}
                 </div>
 
                 {/* Condiciones Comerciales */}
-                <div style={{ padding: '0 48px 24px' }}>
+                <div className="cot-condiciones" style={{ padding: '0 48px 24px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
                     <div style={{ width: '28px', height: '2px', background: '#b8470a' }}></div>
                     <div style={{ fontSize: '10px', fontWeight: '600', color: '#b8470a', textTransform: 'uppercase', letterSpacing: '2px' }}>Condiciones Comerciales</div>
@@ -4751,10 +4759,10 @@ ${cotHtml}
                 </div>
 
                 {/* Separador */}
-                <div style={{ margin: '0 48px', height: '1px', background: '#e8e6e1' }}></div>
+                <div className="cot-separator" style={{ margin: '0 48px', height: '1px', background: '#e8e6e1' }}></div>
 
                 {/* Firma y footer */}
-                <div style={{ padding: '24px 48px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                <div className="cot-footer" style={{ padding: '24px 48px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                   <div style={{ fontSize: '11px', color: '#7a7a78' }}>
                     <div style={{ fontWeight: '600', color: '#0a0a0a', marginBottom: '3px', fontSize: '12px' }}>AFOR</div>
                     <div>Assets for Non-Process Infrastructure</div>
