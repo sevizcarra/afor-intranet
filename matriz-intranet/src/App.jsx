@@ -1024,6 +1024,11 @@ export default function MatrizIntranet() {
   const [cotShowPreview, setCotShowPreview] = useState(false);
   const [cotGenerando, setCotGenerando] = useState(false);
   const [cotFirma, setCotFirma] = useState(null);
+  const [cotFirmante, setCotFirmante] = useState('sav'); // 'sav' | 'fmontt'
+  const FIRMANTES = {
+    sav: { id: 'sav', nombre: 'Sebastián A. Vizcarra B.', firma: '/firma-sav.png', cargo: 'Arquitecto Líder' },
+    fmontt: { id: 'fmontt', nombre: 'Fabián Montt', firma: '/firma-fmontt.png', cargo: 'Arquitecto Líder' },
+  };
   // Refs para campos de texto COT: persisten entre remounts sin causar re-render de App al escribir
   const cotClienteRef = React.useRef('');
   const cotProyectoNombreRef = React.useRef('');
@@ -4093,6 +4098,7 @@ export default function MatrizIntranet() {
                                     setCotExcelData(cot.excelData || null);
                                     setCotExcelFileName(cot.excelFileName || '');
                                     setCotFirma(cot.firmada || false);
+                                    setCotFirmante(cot.firmante || 'sav');
                                     setCotRevAEnabled(cot.revAEnabled !== false); setCotRevBEnabled(cot.revBEnabled !== false); setCotRev0Enabled(cot.rev0Enabled !== false);
                                     setCotRevAPercent(cot.revAPercent ?? 70); setCotRevBPercent(cot.revBPercent ?? 20); setCotRev0Percent(cot.rev0Percent ?? 10);
                                     setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0);
@@ -4111,6 +4117,7 @@ export default function MatrizIntranet() {
                                     setCotExcelData(cot.excelData || null);
                                     setCotExcelFileName(cot.excelFileName || '');
                                     setCotFirma(cot.firmada || false);
+                                    setCotFirmante(cot.firmante || 'sav');
                                     setCotRevAEnabled(cot.revAEnabled !== false); setCotRevBEnabled(cot.revBEnabled !== false); setCotRev0Enabled(cot.rev0Enabled !== false);
                                     setCotRevAPercent(cot.revAPercent ?? 70); setCotRevBPercent(cot.revBPercent ?? 20); setCotRev0Percent(cot.rev0Percent ?? 10);
                                     setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0);
@@ -4431,6 +4438,7 @@ export default function MatrizIntranet() {
                       excelDataJson: JSON.stringify(cleanExcelData),
                       excelFileName: cotExcelFileName || '',
                       firmada: !!cotFirma,
+                      firmante: cotFirmante || 'sav',
                       revAEnabled: cotRevAEnabled, revBEnabled: cotRevBEnabled, rev0Enabled: cotRev0Enabled,
                       revAPercent: cotRevAPercent, revBPercent: cotRevBPercent, rev0Percent: cotRev0Percent,
                       // Motor paramétrico
@@ -4745,13 +4753,42 @@ ${cotHtml}
                     <div style={{ marginTop: '2px' }}>www.afor.cl · contacto@afor.cl</div>
                   </div>
                   <div style={{ textAlign: 'center' }}>
+                    {/* Selector de firmante (no se imprime) */}
+                    <div className="no-print" style={{ marginBottom: '8px', display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                      {Object.values(FIRMANTES).map(f => (
+                        <button
+                          key={f.id}
+                          onClick={() => setCotFirmante(f.id)}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '10px',
+                            fontWeight: cotFirmante === f.id ? '700' : '400',
+                            border: cotFirmante === f.id ? '1.5px solid #0a0a0a' : '1px solid #d4d4d4',
+                            background: cotFirmante === f.id ? '#0a0a0a' : 'transparent',
+                            color: cotFirmante === f.id ? '#fafaf7' : '#7a7a78',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s',
+                            letterSpacing: '0.3px',
+                          }}
+                        >
+                          {f.nombre.split(' ')[0]}
+                        </button>
+                      ))}
+                    </div>
                     {cotFirma ? (
                       <div>
-                        <img src="/firma-sav.png" alt="Firma" style={{ height: '60px', marginBottom: '4px' }} className="firma-img" />
+                        <img src={FIRMANTES[cotFirmante]?.firma || '/firma-sav.png'} alt="Firma" style={{ height: '60px', marginBottom: '4px' }} className="firma-img" />
                         <div style={{ borderTop: '1.5px solid #0a0a0a', paddingTop: '6px', paddingLeft: '20px', paddingRight: '20px' }}>
-                          <div style={{ fontSize: '12px', fontWeight: '600', color: '#0a0a0a', letterSpacing: '0.3px' }}>Sebastián A. Vizcarra B.</div>
-                          <div style={{ fontSize: '10px', color: '#7a7a78', marginTop: '1px' }}>Arquitecto Líder</div>
+                          <div style={{ fontSize: '12px', fontWeight: '600', color: '#0a0a0a', letterSpacing: '0.3px' }}>{FIRMANTES[cotFirmante]?.nombre || 'Sebastián A. Vizcarra B.'}</div>
+                          <div style={{ fontSize: '10px', color: '#7a7a78', marginTop: '1px' }}>{FIRMANTES[cotFirmante]?.cargo || 'Arquitecto Líder'}</div>
                         </div>
+                        <button
+                          onClick={() => setCotFirma(false)}
+                          className="no-print"
+                          style={{ marginTop: '6px', fontSize: '10px', color: '#b8470a', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                        >
+                          Quitar firma
+                        </button>
                       </div>
                     ) : (
                       <div>
@@ -4766,8 +4803,8 @@ ${cotHtml}
                           </button>
                         </div>
                         <div style={{ borderTop: '1.5px solid #0a0a0a', paddingTop: '6px', paddingLeft: '20px', paddingRight: '20px' }}>
-                          <div style={{ fontSize: '12px', fontWeight: '600', color: '#0a0a0a', letterSpacing: '0.3px' }}>Sebastián A. Vizcarra B.</div>
-                          <div style={{ fontSize: '10px', color: '#7a7a78', marginTop: '1px' }}>Arquitecto Líder</div>
+                          <div style={{ fontSize: '12px', fontWeight: '600', color: '#0a0a0a', letterSpacing: '0.3px' }}>{FIRMANTES[cotFirmante]?.nombre || 'Sebastián A. Vizcarra B.'}</div>
+                          <div style={{ fontSize: '10px', color: '#7a7a78', marginTop: '1px' }}>{FIRMANTES[cotFirmante]?.cargo || 'Arquitecto Líder'}</div>
                         </div>
                       </div>
                     )}
