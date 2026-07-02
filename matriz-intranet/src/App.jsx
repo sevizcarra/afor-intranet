@@ -4539,9 +4539,10 @@ export default function MatrizIntranet() {
                       pw.document.write(`<html><head><title>AFOR — Propuesta ${cotCliente}</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
-@page { size: letter landscape; margin: 8mm 12mm; }
+@page { size: landscape; margin: 8mm 12mm; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif; color: #0a0a0a; background: #fafaf7; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+html, body { width: 100%; }
+body { font-family: 'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif; color: #0a0a0a; background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .no-print { display: none !important; }
 table { page-break-inside: auto; }
 tr { page-break-inside: avoid; }
