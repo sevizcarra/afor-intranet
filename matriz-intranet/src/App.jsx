@@ -1037,6 +1037,7 @@ export default function MatrizIntranet() {
     fmontt: { id: 'fmontt', nombre: 'Fabián Montt', firma: '/firma-fmontt.png', cargo: 'Arquitecto Líder' },
   };
   // Refs para campos de texto COT: persisten entre remounts sin causar re-render de App al escribir
+  const cotCodigoRef = React.useRef('');
   const cotClienteRef = React.useRef('');
   const cotProyectoNombreRef = React.useRef('');
   // Estados posibles de una cotización
@@ -2780,8 +2781,10 @@ export default function MatrizIntranet() {
   // Estados COT: archivos/preview en App (useState), texto en App (useRef) + local (useState)
   const FacturacionPage = () => {
     // Estados locales de texto inicializados desde refs (persisten sin causar re-render de App)
+    const [cotCodigo, setCotCodigoLocal] = useState(cotCodigoRef.current);
     const [cotCliente, setCotClienteLocal] = useState(cotClienteRef.current);
     const [cotProyectoNombre, setCotProyectoNombreLocal] = useState(cotProyectoNombreRef.current);
+    const setCotCodigo = (val) => { setCotCodigoLocal(val); cotCodigoRef.current = val; };
     const setCotCliente = (val) => { setCotClienteLocal(val); cotClienteRef.current = val; };
     const setCotProyectoNombre = (val) => { setCotProyectoNombreLocal(val); cotProyectoNombreRef.current = val; };
 
@@ -3991,6 +3994,7 @@ export default function MatrizIntranet() {
               {cotMode === 'lista' ? (
                 <button
                   onClick={() => {
+                    setCotCodigo('');
                     setCotCliente('');
                     setCotProyectoNombre('');
                     setCotExcelData(null);
@@ -4081,6 +4085,7 @@ export default function MatrizIntranet() {
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-4 text-sm text-neutral-500 dark:text-neutral-400">
+                                  {cot.codigo && <span className="font-mono text-xs text-neutral-600 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-700 px-1.5 py-0.5 rounded">{cot.codigo}</span>}
                                   <span className="flex items-center gap-1"><Building2 className="w-3.5 h-3.5" /> {cot.cliente || '—'}</span>
                                   <span className="flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> {items} ítem{items !== 1 ? 's' : ''}</span>
                                   <span className="font-semibold text-orange-600">{total.toFixed(1)} UF</span>
@@ -4100,6 +4105,7 @@ export default function MatrizIntranet() {
                                 </button>
                                 <button
                                   onClick={() => {
+                                    setCotCodigo(cot.codigo || '');
                                     setCotCliente(cot.cliente || '');
                                     setCotProyectoNombre(cot.proyectoNombre || '');
                                     setCotExcelData(cot.excelData || null);
@@ -4119,6 +4125,7 @@ export default function MatrizIntranet() {
                                 </button>
                                 <button
                                   onClick={() => {
+                                    setCotCodigo(cot.codigo || '');
                                     setCotCliente(cot.cliente || '');
                                     setCotProyectoNombre(cot.proyectoNombre || '');
                                     setCotExcelData(cot.excelData || null);
@@ -4192,7 +4199,19 @@ export default function MatrizIntranet() {
             {(cotMode === 'crear' || cotMode === 'editar') && (
             <div className="space-y-4">
               {/* Datos del Cliente */}
-              <div className="grid sm:grid-cols-2 gap-4">
+              <div className="grid sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-neutral-600 dark:text-neutral-300 font-medium text-xs uppercase tracking-wider mb-1">
+                    Código Cotización
+                  </label>
+                  <input
+                    type="text"
+                    value={cotCodigo}
+                    onChange={e => setCotCodigo(e.target.value)}
+                    placeholder="Ej: COT-2026-001"
+                    className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  />
+                </div>
                 <div>
                   <label className="block text-neutral-600 dark:text-neutral-300 font-medium text-xs uppercase tracking-wider mb-1">
                     Nombre del Cliente *
@@ -4440,6 +4459,7 @@ export default function MatrizIntranet() {
                       row.map(cell => (cell === undefined || cell === null) ? '' : cell)
                     );
                     const cotData = {
+                      codigo: cotCodigo || '',
                       cliente: cotCliente,
                       proyectoNombre: cotProyectoNombre,
                       excelDataJson: JSON.stringify(cleanExcelData),
@@ -4465,6 +4485,7 @@ export default function MatrizIntranet() {
                     if (result) {
                       showNotification('success', cotMode === 'editar' ? 'Cotización actualizada' : 'Cotización creada');
                       setCotMode('lista');
+                      setCotCodigo('');
                       setCotCliente('');
                       setCotProyectoNombre('');
                       setCotExcelData(null);
@@ -4589,6 +4610,12 @@ ${cotHtml}
                     <div style={{ fontSize: '10px', color: '#7a7a78', letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: '500' }}>Propuesta de Servicios Profesionales</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
+                    {cotCodigo && (
+                      <div style={{ marginBottom: '8px' }}>
+                        <div style={{ fontSize: '9px', color: '#7a7a78', textTransform: 'uppercase', letterSpacing: '1.2px', fontWeight: '600', marginBottom: '4px' }}>Código</div>
+                        <div style={{ fontWeight: '600', fontSize: '14px', color: '#0a0a0a', letterSpacing: '0.5px' }}>{cotCodigo}</div>
+                      </div>
+                    )}
                     <div style={{ fontSize: '9px', color: '#7a7a78', textTransform: 'uppercase', letterSpacing: '1.2px', fontWeight: '600', marginBottom: '4px' }}>Fecha</div>
                     <div style={{ fontWeight: '500', fontSize: '13px', color: '#0a0a0a' }}>{new Date().toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })}</div>
                   </div>
