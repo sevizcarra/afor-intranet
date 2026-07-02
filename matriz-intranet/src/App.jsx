@@ -4031,7 +4031,14 @@ export default function MatrizIntranet() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {cotizaciones.sort((a, b) => (b.fechaCreacion || '').localeCompare(a.fechaCreacion || '')).map(cot => {
+                    {[...cotizaciones].sort((a, b) => {
+                      const ca = (a.codigo || '').toUpperCase();
+                      const cb = (b.codigo || '').toUpperCase();
+                      if (ca && cb) return ca.localeCompare(cb, undefined, { numeric: true });
+                      if (ca) return -1;
+                      if (cb) return 1;
+                      return (b.fechaCreacion || '').localeCompare(a.fechaCreacion || '');
+                    }).map(cot => {
                       const rA = cot.revAEnabled !== false; const rB = cot.revBEnabled !== false; const r0 = cot.rev0Enabled !== false;
                       const pA = cot.revAPercent ?? 70; const pB = cot.revBPercent ?? 20; const p0 = cot.rev0Percent ?? 10;
                       const revFactor = ((rA ? pA : 0) + (rB ? pB : 0) + (r0 ? p0 : 0)) / 100;
