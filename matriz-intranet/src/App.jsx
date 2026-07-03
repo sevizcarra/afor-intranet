@@ -4200,8 +4200,8 @@ export default function MatrizIntranet() {
                               )}
                             </div>
                           )}
-                          {/* Archivos adjuntos */}
-                          {((cot.archivos && cot.archivos.length > 0) || estadoActual === 'aceptada') && (
+                          {/* Archivos adjuntos — siempre visible */}
+                          {(
                             <div className={`border-t border-neutral-200 dark:border-neutral-700 px-4 py-3 ${logAbierto ? '' : 'rounded-b-lg'}`}>
                               <div className="flex items-center justify-between mb-2">
                                 <div className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider flex items-center gap-1.5">
