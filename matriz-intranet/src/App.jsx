@@ -4064,8 +4064,10 @@ export default function MatrizIntranet() {
                       const historial = cot.historial || [];
                       const logAbierto = cotLogOpen === cot._docId;
                       const esRechazada = estadoActual === 'rechazada';
+                      const esAceptada = estadoActual === 'aceptada';
+                      const esInactiva = esRechazada || esAceptada;
                       return (
-                        <div key={cot._docId} className={`border rounded-lg transition-colors ${esRechazada ? 'border-neutral-300 dark:border-neutral-700' : 'border-neutral-200 dark:border-neutral-700 hover:border-orange-300 dark:hover:border-orange-700'}`} style={esRechazada ? { opacity: 0.45, filter: 'grayscale(100%)', background: '#f0f0f0' } : {}}>
+                        <div key={cot._docId} className={`border rounded-lg transition-colors ${esInactiva ? 'border-neutral-300 dark:border-neutral-700' : 'border-neutral-200 dark:border-neutral-700 hover:border-orange-300 dark:hover:border-orange-700'}`} style={esRechazada ? { opacity: 0.45, filter: 'grayscale(100%)', background: '#f0f0f0' } : esAceptada ? { opacity: 0.55, background: '#ecfdf5', borderColor: '#a7f3d0' } : {}}>
                           <div className="p-4">
                             <div className="flex items-start justify-between">
                               <div className="flex-1 min-w-0">
