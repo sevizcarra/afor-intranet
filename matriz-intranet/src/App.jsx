@@ -560,6 +560,18 @@ const addDays = (date, days) => {
   return result;
 };
 
+// Sumar días HÁBILES (salta sábados y domingos)
+const addBusinessDays = (date, days) => {
+  const result = new Date(date);
+  let added = 0;
+  while (added < days) {
+    result.setDate(result.getDate() + 1);
+    const dow = result.getDay();
+    if (dow !== 0 && dow !== 6) added++; // 0=Domingo, 6=Sábado
+  }
+  return result;
+};
+
 const formatDateShort = (date) => {
   if (!date) return '-';
   const d = new Date(date);
@@ -580,12 +592,12 @@ const calculateDeadlines = (projectStart, weekStart, duracionRevADias = 10, dura
   const start = new Date(projectStart);
   // El entregable comienza en la semana weekStart (relativa al inicio del proyecto)
   const entregableStart = addWeeks(start, weekStart);
-  // REV_A termina después de duracionRevADias días hábiles
-  const deadlineRevA = addDays(entregableStart, duracionRevADias);
-  // REV_B termina después de duracionRevBDias días desde fin REV_A
-  const deadlineRevB = addDays(deadlineRevA, duracionRevBDias);
-  // REV_0 termina después de duracionRev0Dias días desde fin REV_B
-  const deadlineRev0 = addDays(deadlineRevB, duracionRev0Dias);
+  // REV_A termina después de duracionRevADias días hábiles (salta fines de semana)
+  const deadlineRevA = addBusinessDays(entregableStart, duracionRevADias);
+  // REV_B termina después de duracionRevBDias días hábiles desde fin REV_A
+  const deadlineRevB = addBusinessDays(deadlineRevA, duracionRevBDias);
+  // REV_0 termina después de duracionRev0Dias días hábiles desde fin REV_B
+  const deadlineRev0 = addBusinessDays(deadlineRevB, duracionRev0Dias);
   return { deadlineRevA, deadlineRevB, deadlineRev0, entregableStart, duracionRevADias, duracionRevBDias, duracionRev0Dias };
 };
 
