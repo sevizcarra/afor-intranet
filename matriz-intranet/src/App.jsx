@@ -255,6 +255,28 @@ const DURACION_POR_TIPO_DEFAULT = {
 // Duración fija para REV_B y REV_0 (en días hábiles)
 const DURACION_REVISION_DEFAULT = 3;
 
+const TIPOS_ENTREGABLE = [
+  { id: 'DOC', nombre: 'Documento', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' },
+  { id: 'PLA', nombre: 'Plano', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300' },
+  { id: 'INF', nombre: 'Informe', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300' },
+  { id: 'REU', nombre: 'Reunión', color: 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300' },
+  { id: 'VIS', nombre: 'Visita', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300' }
+];
+
+const getTipoDocumento = (codigo, nombre, tipoManual) => {
+  if (tipoManual && ['DOC', 'PLA', 'INF', 'REU', 'VIS'].includes(tipoManual)) return tipoManual;
+  const cod = (codigo || '').toUpperCase();
+  const nom = (nombre || '').toUpperCase();
+  if (cod.includes('CRD') || cod.includes('SPE') || cod.includes('MTO') || cod.includes('ERD')) return 'DOC';
+  if (cod.includes('DET') || cod.includes('PLA') || cod.includes('ARQ') || nom.includes('DETALLE') || nom.includes('PLANO')) return 'PLA';
+  return 'PLA';
+};
+
+const getTipoColor = (tipo) => {
+  const tipoObj = TIPOS_ENTREGABLE.find(t => t.id === tipo);
+  return tipoObj?.color || 'bg-neutral-200 text-neutral-700 dark:bg-neutral-600 dark:text-neutral-300';
+};
+
 // Helper: obtener duración REV_A en días para un entregable según su tipo
 const obtenerDuracionRevA = (entregable, duraciones = DURACION_POR_TIPO_DEFAULT) => {
   const cod = (entregable.codigo || '').toUpperCase();
@@ -853,7 +875,7 @@ export default function MatrizIntranet() {
       'proyecto-detail': 'Detalle Proyecto',
       'horas': 'Carga HsH',
       'tareas': 'Tareas',
-      'facturacion': 'Adm. Proyectos',
+      'facturacion': 'COTs',
       'config': 'Configuración'
     };
 
@@ -1029,6 +1051,15 @@ export default function MatrizIntranet() {
 
   // Estado para tab de facturación (debe estar aquí para persistir entre re-renders del heartbeat)
   const [facturacionTab, setFacturacionTab] = useState('entregables'); // 'entregables' | 'edp' | 'cot'
+  const [editingEntregable, setEditingEntregable] = useState(null);
+  const [showAddEntregable, setShowAddEntregable] = useState(false);
+  const [nuevoEntregable, setNuevoEntregable] = useState({ codigo: '', nombre: '', tipo: 'PLA', secuencia: 1, weekStart: 1, valorRevA: 0, valorRevB: 0, valorRev0: 0, hshDirecto: 0 });
+  const [freezeConfirm, setFreezeConfirm] = useState({ show: false, proyectoId: null, entregableId: null, nombre: '' });
+  const [deleteEntregableConfirm, setDeleteEntregableConfirm] = useState({ show: false, proyectoId: null, entregableId: null, nombre: '' });
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [selectedProyectoEDP, setSelectedProyectoEDP] = useState('all');
+  const [edpObservaciones, setEdpObservaciones] = useState({});
+  const [showPreview, setShowPreview] = useState(false);
 
   // Estados COT a nivel de App para que persistan al re-montar (heartbeat cada 30s)
   const [cotLogo, setCotLogo] = useState(null);
@@ -1420,10 +1451,10 @@ export default function MatrizIntranet() {
   // Navegación (filtrada según rol)
   const allNavItems = [
     { id: 'home', label: 'Home', icon: Home, adminOnly: false },
+    { id: 'facturacion', label: 'COTs', icon: FileSpreadsheet, adminOnly: true },
     { id: 'proyectos', label: 'Proyectos', icon: FolderKanban, adminOnly: false },
     { id: 'horas', label: 'Carga HsH', icon: Clock, adminOnly: false },
     { id: 'tareas', label: 'Tareas', icon: ClipboardList, adminOnly: false },
-    { id: 'facturacion', label: 'Adm. Proyectos', icon: FileSpreadsheet, adminOnly: true },
     { id: 'config', label: 'Config', icon: Settings, adminOnly: true },
   ];
   const navItems = isAdmin ? allNavItems : allNavItems.filter(item => !item.adminOnly);
@@ -1809,7 +1840,7 @@ export default function MatrizIntranet() {
               onClick={() => setCurrentPage('facturacion')}
             >
               <FileSpreadsheet className="w-6 h-6 sm:w-8 sm:h-8 text-purple-500 mx-auto mb-1 sm:mb-2" />
-              <p className="text-neutral-800 dark:text-neutral-100 text-xs sm:text-sm">Adm. Proyectos</p>
+              <p className="text-neutral-800 dark:text-neutral-100 text-xs sm:text-sm">COTs</p>
             </Card>
           )}
         </div>
@@ -2780,7 +2811,337 @@ export default function MatrizIntranet() {
   };
 
   // ============================================
-  // PÁGINA: FACTURACIÓN (PROTEGIDA) - Gestión de Entregables + EDP
+  // Funciones de Entregables y EDP (a nivel App para reutilizar en Dashboard)
+  // ============================================
+
+  const getEntregablesProyecto = (proyectoId) => {
+    const proyecto = proyectos.find(p => p.id === proyectoId);
+    if (!proyecto) return [];
+    return proyecto.entregables?.length > 0 ? proyecto.entregables : [];
+  };
+
+  const updateEntregable = async (proyectoId, entregableId, updates) => {
+    const proyecto = proyectos.find(p => p.id === proyectoId);
+    if (!proyecto) return;
+
+    let entregablesActualizados = (proyecto.entregables || []).map(e =>
+      e.id === entregableId ? { ...e, ...updates } : e
+    );
+
+    if (updates.weekStart !== undefined) {
+      entregablesActualizados = entregablesActualizados
+        .sort((a, b) => (a.weekStart || a.secuencia || 1) - (b.weekStart || b.secuencia || 1));
+    }
+
+    const proyectoActualizado = { ...proyecto, entregables: entregablesActualizados };
+    await saveProyecto(proyectoActualizado);
+    showNotification('success', 'Entregable actualizado');
+  };
+
+  const addEntregable = async (proyectoId) => {
+    const proyecto = proyectos.find(p => p.id === proyectoId);
+    if (!proyecto) return;
+
+    const maxId = Math.max(0, ...(proyecto.entregables || []).map(e => e.id));
+    const esHshDirecto = ['REU', 'VIS'].includes(nuevoEntregable.tipo);
+
+    const nuevoEnt = {
+      id: maxId + 1,
+      codigo: nuevoEntregable.codigo,
+      nombre: nuevoEntregable.nombre,
+      tipo: nuevoEntregable.tipo,
+      secuencia: parseInt(nuevoEntregable.secuencia) || 1,
+      weekStart: parseInt(nuevoEntregable.weekStart) || 1,
+      valorRevA: esHshDirecto ? parseFloat(nuevoEntregable.hshDirecto) || 0 : parseFloat(nuevoEntregable.valorRevA) || 0,
+      valorRevB: esHshDirecto ? 0 : parseFloat(nuevoEntregable.valorRevB) || 0,
+      valorRev0: esHshDirecto ? 0 : parseFloat(nuevoEntregable.valorRev0) || 0,
+      hshDirecto: esHshDirecto,
+      frozen: false
+    };
+
+    const entregablesActualizados = [...(proyecto.entregables || []), nuevoEnt]
+      .sort((a, b) => (a.weekStart || a.secuencia || 1) - (b.weekStart || b.secuencia || 1));
+    const proyectoActualizado = { ...proyecto, entregables: entregablesActualizados };
+    await saveProyecto(proyectoActualizado);
+
+    const key = `${proyectoId}_${nuevoEnt.id}`;
+    setStatusData(prev => ({
+      ...prev,
+      [key]: {
+        sentIniciado: false,
+        sentRevA: false,
+        sentRevADate: null,
+        comentariosARecibidos: false,
+        comentariosARecibidosDate: null,
+        sentRevB: false,
+        sentRevBDate: null,
+        comentariosBRecibidos: false,
+        comentariosBRecibidosDate: null,
+        sentRev0: false,
+        sentRev0Date: null,
+      }
+    }));
+
+    setNuevoEntregable({ codigo: '', nombre: '', tipo: 'PLA', secuencia: 1, weekStart: 1, valorRevA: 0, valorRevB: 0, valorRev0: 0, hshDirecto: 0 });
+    setShowAddEntregable(false);
+    showNotification('success', 'Entregable agregado');
+  };
+
+  const showFreezeConfirmFn = (proyectoId, entregableId, nombre) => {
+    setFreezeConfirm({ show: true, proyectoId, entregableId, nombre });
+  };
+
+  const toggleFreezeEntregable = async () => {
+    const { proyectoId, entregableId } = freezeConfirm;
+    const proyecto = proyectos.find(p => p.id === proyectoId);
+    if (!proyecto) return;
+
+    const entregablesActualizados = (proyecto.entregables || []).map(e =>
+      e.id === entregableId ? { ...e, frozen: !e.frozen } : e
+    );
+
+    const proyectoActualizado = { ...proyecto, entregables: entregablesActualizados };
+    await saveProyecto(proyectoActualizado);
+    showNotification('info', entregablesActualizados.find(e => e.id === entregableId)?.frozen ? 'Entregable congelado' : 'Entregable descongelado');
+    setFreezeConfirm({ show: false, proyectoId: null, entregableId: null, nombre: '' });
+  };
+
+  const showDeleteEntregableConfirmFn = (proyectoId, entregableId, nombre) => {
+    setDeleteEntregableConfirm({ show: true, proyectoId, entregableId, nombre });
+  };
+
+  const deleteEntregable = async () => {
+    const { proyectoId, entregableId } = deleteEntregableConfirm;
+    const proyecto = proyectos.find(p => p.id === proyectoId);
+    if (!proyecto) return;
+
+    const entregablesActualizados = (proyecto.entregables || []).filter(e => e.id !== entregableId);
+    const proyectoActualizado = { ...proyecto, entregables: entregablesActualizados };
+    await saveProyecto(proyectoActualizado);
+    showNotification('success', 'Entregable eliminado');
+    setDeleteEntregableConfirm({ show: false, proyectoId: null, entregableId: null, nombre: '' });
+  };
+
+  const calcularEDPEntregables = (overrideProyectoEDP) => {
+    const filterProyecto = overrideProyectoEDP !== undefined ? overrideProyectoEDP : selectedProyectoEDP;
+    const [year, month] = selectedMonth.split('-').map(Number);
+    const entregablesDelMes = [];
+
+    proyectos.forEach(proyecto => {
+      if (filterProyecto !== 'all' && proyecto.id !== filterProyecto) return;
+
+      const entregablesProyecto = proyecto.entregables || [];
+      if (entregablesProyecto.length === 0) return;
+
+      entregablesProyecto.forEach(entregable => {
+        if (entregable.frozen) return;
+
+        const statusKey = `${proyecto.id}_${entregable.id}`;
+        const status = statusData[statusKey];
+        if (!status) return;
+
+        const tipo = getTipoDocumento(entregable.codigo, entregable.nombre);
+
+        if (status.sentRevADate && entregable.valorRevA > 0) {
+          const fecha = new Date(status.sentRevADate);
+          if (fecha.getMonth() === month - 1 && fecha.getFullYear() === year) {
+            const obsKey = `${proyecto.id}_${entregable.id}_A`;
+            entregablesDelMes.push({
+              proyectoId: proyecto.id,
+              proyectoNombre: proyecto.nombre,
+              entregableId: entregable.id,
+              codigo: entregable.codigo || '-',
+              nombre: entregable.nombre,
+              tipo,
+              revision: 'A',
+              fecha: status.sentRevADate,
+              valor: entregable.valorRevA,
+              observacion: edpObservaciones[obsKey] || ''
+            });
+          }
+        }
+
+        if (status.sentRevBDate && entregable.valorRevB > 0) {
+          const fecha = new Date(status.sentRevBDate);
+          if (fecha.getMonth() === month - 1 && fecha.getFullYear() === year) {
+            const obsKey = `${proyecto.id}_${entregable.id}_B`;
+            entregablesDelMes.push({
+              proyectoId: proyecto.id,
+              proyectoNombre: proyecto.nombre,
+              entregableId: entregable.id,
+              codigo: entregable.codigo || '-',
+              nombre: entregable.nombre,
+              tipo,
+              revision: 'B',
+              fecha: status.sentRevBDate,
+              valor: entregable.valorRevB,
+              observacion: edpObservaciones[obsKey] || ''
+            });
+          }
+        }
+
+        if (status.sentRev0Date && entregable.valorRev0 > 0) {
+          const fecha = new Date(status.sentRev0Date);
+          if (fecha.getMonth() === month - 1 && fecha.getFullYear() === year) {
+            const obsKey = `${proyecto.id}_${entregable.id}_0`;
+            entregablesDelMes.push({
+              proyectoId: proyecto.id,
+              proyectoNombre: proyecto.nombre,
+              entregableId: entregable.id,
+              codigo: entregable.codigo || '-',
+              nombre: entregable.nombre,
+              tipo,
+              revision: '0',
+              fecha: status.sentRev0Date,
+              valor: entregable.valorRev0,
+              observacion: edpObservaciones[obsKey] || ''
+            });
+          }
+        }
+      });
+    });
+
+    horasRegistradas.forEach(hora => {
+      if (hora.tipo !== 'VIS' && hora.tipo !== 'REU') return;
+      const esDeSebastian = hora.profesionalId === 3 || hora.profesionalId === 'admin';
+      if (!esDeSebastian) return;
+      const fechaHora = new Date(hora.fecha);
+      if (fechaHora.getMonth() !== month - 1 || fechaHora.getFullYear() !== year) return;
+      if (filterProyecto !== 'all' && hora.proyectoId !== filterProyecto) return;
+
+      const proyecto = proyectos.find(p => p.id === hora.proyectoId);
+      const proyectoNombre = proyecto ? proyecto.nombre : hora.proyectoId;
+
+      const entregableId = `hsh_${hora.id}`;
+      const revision = '-';
+      const obsKey = `${hora.proyectoId}_${entregableId}_${revision}`;
+      entregablesDelMes.push({
+        proyectoId: hora.proyectoId,
+        proyectoNombre: proyectoNombre,
+        entregableId: entregableId,
+        codigo: '-',
+        nombre: hora.entregable || (hora.tipo === 'VIS' ? 'Visita' : 'Reunión'),
+        tipo: hora.tipo,
+        revision: revision,
+        fecha: hora.fecha.split('T')[0],
+        valor: hora.horas,
+        observacion: edpObservaciones[obsKey] || '',
+        esHsH: true
+      });
+    });
+
+    entregablesDelMes.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+    return entregablesDelMes;
+  };
+
+  const agruparPorProyecto = (entregables) => {
+    const grupos = {};
+    entregables.forEach(e => {
+      if (!grupos[e.proyectoId]) {
+        grupos[e.proyectoId] = {
+          nombre: e.proyectoNombre,
+          entregables: [],
+          totalUF: 0
+        };
+      }
+      grupos[e.proyectoId].entregables.push(e);
+      grupos[e.proyectoId].totalUF += e.valor;
+    });
+    return grupos;
+  };
+
+  const exportarXLSX = async (overrideProyectoEDP) => {
+    const entregables = calcularEDPEntregables(overrideProyectoEDP);
+    if (entregables.length === 0) {
+      showNotification('warning', 'No hay datos para exportar');
+      return;
+    }
+
+    if (!window.XLSX) {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      await new Promise((resolve, reject) => {
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+      });
+    }
+
+    const filterProyecto = overrideProyectoEDP !== undefined ? overrideProyectoEDP : selectedProyectoEDP;
+    const mesNombre = new Date(selectedMonth + '-01').toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
+
+    let totalProyectoHsH = 0;
+    let mesAnteriorHsH = 0;
+    const mesEnCursoHsH = entregables.reduce((s, e) => s + e.valor, 0);
+
+    const porProyectoExcel = agruparPorProyecto(entregables);
+    Object.entries(porProyectoExcel).forEach(([pid, pdata]) => {
+      const proyecto = proyectos.find(p => p.id === pid);
+      if (proyecto && proyecto.entregables) {
+        proyecto.entregables.forEach(ent => {
+          if (!ent.frozen) {
+            totalProyectoHsH += (ent.valorRevA || 0) + (ent.valorRevB || 0) + (ent.valorRev0 || 0);
+            const avanceAnterior = (ent.avanceAnterior || 0) / 100;
+            const valorTotal = (ent.valorRevA || 0) + (ent.valorRevB || 0) + (ent.valorRev0 || 0);
+            mesAnteriorHsH += valorTotal * avanceAnterior;
+          }
+        });
+      }
+    });
+    const totalPendienteHsH = Math.max(0, totalProyectoHsH - mesAnteriorHsH - mesEnCursoHsH);
+
+    const proyectoSelEDP = filterProyecto !== 'all' ? proyectos.find(p => p.id === filterProyecto) : null;
+    const jefeProyectoNombre = proyectoSelEDP?.jefeProyecto || '';
+
+    const data = [
+      ['ESTADO DE PAGO - ' + mesNombre.toUpperCase()],
+      [''],
+      ['C. COSTO', 'TIPO', 'CÓDIGO', 'DESCRIPCIÓN', 'REV', 'FECHA ENVÍO', 'HsH', 'OBS'],
+      ...entregables.map(e => [
+        e.proyectoId,
+        e.tipo,
+        e.codigo,
+        e.nombre,
+        e.esHsH ? '-' : 'REV_' + e.revision,
+        e.fecha,
+        e.valor.toFixed(2),
+        e.observacion || ''
+      ]),
+      [''],
+      ['', '', '', '', '', 'TOTAL:', mesEnCursoHsH.toFixed(2) + ' HsH', ''],
+      [''],
+      [''],
+      ['RESUMEN DE HORAS'],
+      ['Total Proyecto:', totalProyectoHsH.toFixed(1) + ' HsH'],
+      ['Mes Anterior:', mesAnteriorHsH.toFixed(1) + ' HsH'],
+      ['Mes en Curso:', mesEnCursoHsH.toFixed(1) + ' HsH'],
+      ['Total Pendiente:', totalPendienteHsH.toFixed(1) + ' HsH'],
+      [''],
+      ['FACTURACIÓN'],
+      ['HsH Mes en Curso:', mesEnCursoHsH.toFixed(1)],
+      [''],
+      [''],
+      ['_______________________________', '', '', '_______________________________'],
+      ['Jefe de Proyecto' + (filterProyecto !== 'all' ? ' ' + filterProyecto : ''), '', '', 'Líder de Arquitectura'],
+      [jefeProyectoNombre, '', '', 'Sebastián A. Vizcarra']
+    ];
+
+    const ws = window.XLSX.utils.aoa_to_sheet(data);
+    ws['!cols'] = [
+      { wch: 10 }, { wch: 10 }, { wch: 18 }, { wch: 40 },
+      { wch: 8 }, { wch: 12 }, { wch: 10 }, { wch: 25 }
+    ];
+
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, 'EDP ' + mesNombre);
+
+    const fileName = `EDP_${selectedMonth}.xlsx`;
+    window.XLSX.writeFile(wb, fileName);
+    showNotification('success', 'Excel exportado correctamente');
+  };
+
+  // ============================================
+  // PÁGINA: FACTURACIÓN (PROTEGIDA) - Cotizaciones
   // ============================================
   // NUEVO MODELO: Entregables × Tipo × Revisión
   // Precios base: DOC = 40 UF, PLA DET = 25 UF, PLA GEN = 20 UF, REU INT/CTTAL = 1 UF, VIS = 25 UF
@@ -2796,15 +3157,7 @@ export default function MatrizIntranet() {
     const setCotCliente = (val) => { setCotClienteLocal(val); cotClienteRef.current = val; };
     const setCotProyectoNombre = (val) => { setCotProyectoNombreLocal(val); cotProyectoNombreRef.current = val; };
 
-    const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
-    const [showPreview, setShowPreview] = useState(false);
-    const [selectedProyectoEDP, setSelectedProyectoEDP] = useState('all');
-    // Usar estado del padre para evitar reset al re-render
-    const selectedProyectoEdit = selectedProyectoFacturacion || proyectos[0]?.id || '';
-    const setSelectedProyectoEdit = setSelectedProyectoFacturacion;
-    const [editingEntregable, setEditingEntregable] = useState(null);
-    const [showAddEntregable, setShowAddEntregable] = useState(false);
-    const [edpObservaciones, setEdpObservaciones] = useState({});
+    // COT-only local constants (PRECIOS_BASE, PORCENTAJES_REV kept for COT calculations)
 
     // Precios base por tipo de documento (editables en el futuro)
     const PRECIOS_BASE = {
@@ -2822,1172 +3175,14 @@ export default function MatrizIntranet() {
       '0': 0.10 // REV_0 = 10%
     };
 
-    // Función para determinar el tipo de documento
-    // Tipos de entregable
-    const TIPOS_ENTREGABLE = [
-      { id: 'DOC', nombre: 'Documento', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' },
-      { id: 'PLA', nombre: 'Plano', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300' },
-      { id: 'INF', nombre: 'Informe', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300' },
-      { id: 'REU', nombre: 'Reunión', color: 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300' },
-      { id: 'VIS', nombre: 'Visita', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300' }
-    ];
-
-    const getTipoDocumento = (codigo, nombre, tipoManual) => {
-      // Si tiene tipo manual asignado, usarlo
-      if (tipoManual && ['DOC', 'PLA', 'INF', 'REU', 'VIS'].includes(tipoManual)) {
-        return tipoManual;
-      }
-
-      const cod = (codigo || '').toUpperCase();
-      const nom = (nombre || '').toUpperCase();
-
-      // Auto-mapeo por código
-      // CRD, EETT(SPE), MTO → DOC
-      if (cod.includes('CRD') || cod.includes('SPE') || cod.includes('MTO') || cod.includes('ERD')) return 'DOC';
-
-      // DET, PLA, ARQ → PLA
-      if (cod.includes('DET') || cod.includes('PLA') || cod.includes('ARQ') || nom.includes('DETALLE') || nom.includes('PLANO')) return 'PLA';
-
-      // Por defecto es Plano
-      return 'PLA';
-    };
-
-    const getTipoColor = (tipo) => {
-      const tipoObj = TIPOS_ENTREGABLE.find(t => t.id === tipo);
-      return tipoObj?.color || 'bg-neutral-200 text-neutral-700 dark:bg-neutral-600 dark:text-neutral-300';
-    };
-
-    // Nuevo estado para agregar entregable en línea
-    const [nuevoEntregable, setNuevoEntregable] = useState({
-      codigo: '',
-      nombre: '',
-      tipo: 'PLA',
-      secuencia: 1,
-      weekStart: 1,
-      valorRevA: 0,
-      valorRevB: 0,
-      valorRev0: 0,
-      hshDirecto: 0  // Para REU y VIS (sin revisiones)
-    });
-
-    // Estado para confirmación de congelamiento
-    const [freezeConfirm, setFreezeConfirm] = useState({ show: false, proyectoId: null, entregableId: null, nombre: '' });
-
-    // Estado para confirmación de eliminación de entregable
-    const [deleteEntregableConfirm, setDeleteEntregableConfirm] = useState({ show: false, proyectoId: null, entregableId: null, nombre: '' });
-
-    // Función para obtener entregables del proyecto seleccionado
-    const getEntregablesProyecto = (proyectoId) => {
-      const proyecto = proyectos.find(p => p.id === proyectoId);
-      if (!proyecto) return [];
-      return proyecto.entregables?.length > 0 ? proyecto.entregables : [];
-    };
-
-    // Función para actualizar un entregable
-    const updateEntregable = async (proyectoId, entregableId, updates) => {
-      const proyecto = proyectos.find(p => p.id === proyectoId);
-      if (!proyecto) return;
-
-      let entregablesActualizados = (proyecto.entregables || []).map(e =>
-        e.id === entregableId ? { ...e, ...updates } : e
-      );
-
-      // Si se actualizó weekStart, reordenar por semana
-      if (updates.weekStart !== undefined) {
-        entregablesActualizados = entregablesActualizados
-          .sort((a, b) => (a.weekStart || a.secuencia || 1) - (b.weekStart || b.secuencia || 1));
-      }
-
-      const proyectoActualizado = { ...proyecto, entregables: entregablesActualizados };
-      await saveProyecto(proyectoActualizado);
-      showNotification('success', 'Entregable actualizado');
-    };
-
-    // Función para agregar entregable en línea
-    const addEntregable = async (proyectoId) => {
-      const proyecto = proyectos.find(p => p.id === proyectoId);
-      if (!proyecto) return;
-
-      const maxId = Math.max(0, ...(proyecto.entregables || []).map(e => e.id));
-      const esHshDirecto = ['REU', 'VIS'].includes(nuevoEntregable.tipo);
-
-      const nuevoEnt = {
-        id: maxId + 1,
-        codigo: nuevoEntregable.codigo,
-        nombre: nuevoEntregable.nombre,
-        tipo: nuevoEntregable.tipo,
-        secuencia: parseInt(nuevoEntregable.secuencia) || 1,
-        weekStart: parseInt(nuevoEntregable.weekStart) || 1,
-        // Para REU/VIS: usar hshDirecto; para otros: usar REV_A, REV_B, REV_0
-        valorRevA: esHshDirecto ? parseFloat(nuevoEntregable.hshDirecto) || 0 : parseFloat(nuevoEntregable.valorRevA) || 0,
-        valorRevB: esHshDirecto ? 0 : parseFloat(nuevoEntregable.valorRevB) || 0,
-        valorRev0: esHshDirecto ? 0 : parseFloat(nuevoEntregable.valorRev0) || 0,
-        hshDirecto: esHshDirecto,
-        frozen: false
-      };
-
-      // Agregar y ordenar por semana (weekStart)
-      const entregablesActualizados = [...(proyecto.entregables || []), nuevoEnt]
-        .sort((a, b) => (a.weekStart || a.secuencia || 1) - (b.weekStart || b.secuencia || 1));
-      const proyectoActualizado = { ...proyecto, entregables: entregablesActualizados };
-      await saveProyecto(proyectoActualizado);
-
-      // Inicializar statusData para el nuevo entregable
-      const key = `${proyectoId}_${nuevoEnt.id}`;
-      setStatusData(prev => ({
-        ...prev,
-        [key]: {
-          sentIniciado: false,
-          sentRevA: false,
-          sentRevADate: null,
-          comentariosARecibidos: false,
-          comentariosARecibidosDate: null,
-          sentRevB: false,
-          sentRevBDate: null,
-          comentariosBRecibidos: false,
-          comentariosBRecibidosDate: null,
-          sentRev0: false,
-          sentRev0Date: null,
-        }
-      }));
-
-      // Limpiar formulario
-      setNuevoEntregable({ codigo: '', nombre: '', tipo: 'PLA', secuencia: 1, weekStart: 1, valorRevA: 0, valorRevB: 0, valorRev0: 0, hshDirecto: 0 });
-      setShowAddEntregable(false);
-      showNotification('success', 'Entregable agregado');
-    };
-
-    // Función para mostrar confirmación de congelamiento
-    const showFreezeConfirm = (proyectoId, entregableId, nombre) => {
-      setFreezeConfirm({ show: true, proyectoId, entregableId, nombre });
-    };
-
-    // Función para congelar/descongelar entregable
-    const toggleFreezeEntregable = async () => {
-      const { proyectoId, entregableId } = freezeConfirm;
-      const proyecto = proyectos.find(p => p.id === proyectoId);
-      if (!proyecto) return;
-
-      const entregablesActualizados = (proyecto.entregables || []).map(e =>
-        e.id === entregableId ? { ...e, frozen: !e.frozen } : e
-      );
-
-      const proyectoActualizado = { ...proyecto, entregables: entregablesActualizados };
-      await saveProyecto(proyectoActualizado);
-      showNotification('info', entregablesActualizados.find(e => e.id === entregableId)?.frozen ? 'Entregable congelado' : 'Entregable descongelado');
-      setFreezeConfirm({ show: false, proyectoId: null, entregableId: null, nombre: '' });
-    };
-
-    // Función para mostrar confirmación de eliminación
-    const showDeleteEntregableConfirm = (proyectoId, entregableId, nombre) => {
-      setDeleteEntregableConfirm({ show: true, proyectoId, entregableId, nombre });
-    };
-
-    // Función para eliminar entregable
-    const deleteEntregable = async () => {
-      const { proyectoId, entregableId } = deleteEntregableConfirm;
-      const proyecto = proyectos.find(p => p.id === proyectoId);
-      if (!proyecto) return;
-
-      const entregablesActualizados = (proyecto.entregables || []).filter(e => e.id !== entregableId);
-      const proyectoActualizado = { ...proyecto, entregables: entregablesActualizados };
-      await saveProyecto(proyectoActualizado);
-      showNotification('success', 'Entregable eliminado');
-      setDeleteEntregableConfirm({ show: false, proyectoId: null, entregableId: null, nombre: '' });
-    };
-
-    // Función para calcular EDP por entregables del mes (usando valores del Excel)
-    const calcularEDPEntregables = () => {
-      const [year, month] = selectedMonth.split('-').map(Number);
-      const entregablesDelMes = [];
-
-      // Recorrer todos los proyectos
-      proyectos.forEach(proyecto => {
-        if (selectedProyectoEDP !== 'all' && proyecto.id !== selectedProyectoEDP) return;
-
-        const entregablesProyecto = proyecto.entregables || [];
-        if (entregablesProyecto.length === 0) return;
-
-        entregablesProyecto.forEach(entregable => {
-          // Ignorar entregables congelados
-          if (entregable.frozen) return;
-
-          const statusKey = `${proyecto.id}_${entregable.id}`;
-          const status = statusData[statusKey];
-          if (!status) return;
-
-          const tipo = getTipoDocumento(entregable.codigo, entregable.nombre);
-
-          // Verificar REV_A - usar valor del Excel
-          if (status.sentRevADate && entregable.valorRevA > 0) {
-            const fecha = new Date(status.sentRevADate);
-            if (fecha.getMonth() === month - 1 && fecha.getFullYear() === year) {
-              const obsKey = `${proyecto.id}_${entregable.id}_A`;
-              entregablesDelMes.push({
-                proyectoId: proyecto.id,
-                proyectoNombre: proyecto.nombre,
-                entregableId: entregable.id,
-                codigo: entregable.codigo || '-',
-                nombre: entregable.nombre,
-                tipo,
-                revision: 'A',
-                fecha: status.sentRevADate,
-                valor: entregable.valorRevA,
-                observacion: edpObservaciones[obsKey] || ''
-              });
-            }
-          }
-
-          // Verificar REV_B - usar valor del Excel
-          if (status.sentRevBDate && entregable.valorRevB > 0) {
-            const fecha = new Date(status.sentRevBDate);
-            if (fecha.getMonth() === month - 1 && fecha.getFullYear() === year) {
-              const obsKey = `${proyecto.id}_${entregable.id}_B`;
-              entregablesDelMes.push({
-                proyectoId: proyecto.id,
-                proyectoNombre: proyecto.nombre,
-                entregableId: entregable.id,
-                codigo: entregable.codigo || '-',
-                nombre: entregable.nombre,
-                tipo,
-                revision: 'B',
-                fecha: status.sentRevBDate,
-                valor: entregable.valorRevB,
-                observacion: edpObservaciones[obsKey] || ''
-              });
-            }
-          }
-
-          // Verificar REV_0 - usar valor del Excel
-          if (status.sentRev0Date && entregable.valorRev0 > 0) {
-            const fecha = new Date(status.sentRev0Date);
-            if (fecha.getMonth() === month - 1 && fecha.getFullYear() === year) {
-              const obsKey = `${proyecto.id}_${entregable.id}_0`;
-              entregablesDelMes.push({
-                proyectoId: proyecto.id,
-                proyectoNombre: proyecto.nombre,
-                entregableId: entregable.id,
-                codigo: entregable.codigo || '-',
-                nombre: entregable.nombre,
-                tipo,
-                revision: '0',
-                fecha: status.sentRev0Date,
-                valor: entregable.valorRev0,
-                observacion: edpObservaciones[obsKey] || ''
-              });
-            }
-          }
-        });
-      });
-
-      // Agregar VIS y REU de Sebastián al EDP
-      // Solo se incluyen las cargadas por Sebastián (profesionalId 3 o 'admin')
-      horasRegistradas.forEach(hora => {
-        // Solo VIS y REU
-        if (hora.tipo !== 'VIS' && hora.tipo !== 'REU') return;
-
-        // Solo de Sebastián
-        const esDeSebastian = hora.profesionalId === 3 || hora.profesionalId === 'admin';
-        if (!esDeSebastian) return;
-
-        // Verificar que sea del mes seleccionado
-        const fechaHora = new Date(hora.fecha);
-        if (fechaHora.getMonth() !== month - 1 || fechaHora.getFullYear() !== year) return;
-
-        // Filtrar por proyecto si hay uno seleccionado
-        if (selectedProyectoEDP !== 'all' && hora.proyectoId !== selectedProyectoEDP) return;
-
-        // Buscar el nombre del proyecto
-        const proyecto = proyectos.find(p => p.id === hora.proyectoId);
-        const proyectoNombre = proyecto ? proyecto.nombre : hora.proyectoId;
-
-        const entregableId = `hsh_${hora.id}`;
-        const revision = '-';
-        const obsKey = `${hora.proyectoId}_${entregableId}_${revision}`;
-        entregablesDelMes.push({
-          proyectoId: hora.proyectoId,
-          proyectoNombre: proyectoNombre,
-          entregableId: entregableId,
-          codigo: '-',
-          nombre: hora.entregable || (hora.tipo === 'VIS' ? 'Visita' : 'Reunión'),
-          tipo: hora.tipo,
-          revision: revision,
-          fecha: hora.fecha.split('T')[0], // Solo la fecha sin la hora
-          valor: hora.horas,
-          observacion: edpObservaciones[obsKey] || '',
-          esHsH: true // Marcador para identificar que viene de HsH
-        });
-      });
-
-      // Ordenar por fecha
-      entregablesDelMes.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
-
-      return entregablesDelMes;
-    };
-
-    // Agrupar por proyecto
-    const agruparPorProyecto = (entregables) => {
-      const grupos = {};
-      entregables.forEach(e => {
-        if (!grupos[e.proyectoId]) {
-          grupos[e.proyectoId] = {
-            nombre: e.proyectoNombre,
-            entregables: [],
-            totalUF: 0
-          };
-        }
-        grupos[e.proyectoId].entregables.push(e);
-        grupos[e.proyectoId].totalUF += e.valor;
-      });
-      return grupos;
-    };
-
-    // Exportar a XLSX (formato según Excel del usuario)
-    const exportarXLSX = async () => {
-      const entregables = calcularEDPEntregables();
-      if (entregables.length === 0) {
-        showNotification('warning', 'No hay datos para exportar');
-        return;
-      }
-
-      // Cargar XLSX si no está disponible
-      if (!window.XLSX) {
-        const script = document.createElement('script');
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-        await new Promise((resolve, reject) => {
-          script.onload = resolve;
-          script.onerror = reject;
-          document.head.appendChild(script);
-        });
-      }
-
-      const mesNombre = new Date(selectedMonth + '-01').toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
-
-      // Calcular totales para el resumen
-      let totalProyectoHsH = 0;
-      let mesAnteriorHsH = 0;
-      const mesEnCursoHsH = entregables.reduce((s, e) => s + e.valor, 0);
-
-      const porProyectoExcel = agruparPorProyecto(entregables);
-      Object.entries(porProyectoExcel).forEach(([pid, pdata]) => {
-        const proyecto = proyectos.find(p => p.id === pid);
-        if (proyecto && proyecto.entregables) {
-          proyecto.entregables.forEach(ent => {
-            if (!ent.frozen) {
-              totalProyectoHsH += (ent.valorRevA || 0) + (ent.valorRevB || 0) + (ent.valorRev0 || 0);
-              const avanceAnterior = (ent.avanceAnterior || 0) / 100;
-              const valorTotal = (ent.valorRevA || 0) + (ent.valorRevB || 0) + (ent.valorRev0 || 0);
-              mesAnteriorHsH += valorTotal * avanceAnterior;
-            }
-          });
-        }
-      });
-      const totalPendienteHsH = Math.max(0, totalProyectoHsH - mesAnteriorHsH - mesEnCursoHsH);
-
-      // Obtener jefe de proyecto si hay un proyecto seleccionado
-      const proyectoSelEDP = selectedProyectoEDP !== 'all' ? proyectos.find(p => p.id === selectedProyectoEDP) : null;
-      const jefeProyectoNombre = proyectoSelEDP?.jefeProyecto || '';
-
-      // Crear datos para Excel (formato del usuario: C.COSTO, TIPO, CODIGO, DESCRIPCIÓN, REV, FECHA, HsH, OBS)
-      const data = [
-        ['ESTADO DE PAGO - ' + mesNombre.toUpperCase()],
-        [''],
-        ['C. COSTO', 'TIPO', 'CÓDIGO', 'DESCRIPCIÓN', 'REV', 'FECHA ENVÍO', 'HsH', 'OBS'],
-        ...entregables.map(e => [
-          e.proyectoId,      // Centro de Costo = código proyecto
-          e.tipo,
-          e.codigo,
-          e.nombre,
-          e.esHsH ? '-' : 'REV_' + e.revision, // VIS/REU no tienen revisión
-          e.fecha,
-          e.valor.toFixed(2), // HsH directo
-          e.observacion || ''
-        ]),
-        [''],
-        ['', '', '', '', '', 'TOTAL:', mesEnCursoHsH.toFixed(2) + ' HsH', ''],
-        [''],
-        [''],
-        ['RESUMEN DE HORAS'],
-        ['Total Proyecto:', totalProyectoHsH.toFixed(1) + ' HsH'],
-        ['Mes Anterior:', mesAnteriorHsH.toFixed(1) + ' HsH'],
-        ['Mes en Curso:', mesEnCursoHsH.toFixed(1) + ' HsH'],
-        ['Total Pendiente:', totalPendienteHsH.toFixed(1) + ' HsH'],
-        [''],
-        ['FACTURACIÓN'],
-        ['HsH Mes en Curso:', mesEnCursoHsH.toFixed(1)],
-        [''],
-        [''],
-        ['_______________________________', '', '', '_______________________________'],
-        ['Jefe de Proyecto' + (selectedProyectoEDP !== 'all' ? ' ' + selectedProyectoEDP : ''), '', '', 'Líder de Arquitectura'],
-        [jefeProyectoNombre, '', '', 'Sebastián A. Vizcarra']
-      ];
-
-      const ws = window.XLSX.utils.aoa_to_sheet(data);
-
-      // Ajustar anchos de columnas
-      ws['!cols'] = [
-        { wch: 10 }, // C. Costo
-        { wch: 10 }, // Tipo
-        { wch: 18 }, // Código
-        { wch: 40 }, // Descripción
-        { wch: 8 },  // Rev
-        { wch: 12 }, // Fecha
-        { wch: 10 }, // UF
-        { wch: 25 }  // OBS
-      ];
-
-      const wb = window.XLSX.utils.book_new();
-      window.XLSX.utils.book_append_sheet(wb, ws, 'EDP ' + mesNombre);
-
-      // Descargar archivo
-      const fileName = `EDP_${selectedMonth}.xlsx`;
-      window.XLSX.writeFile(wb, fileName);
-      showNotification('success', 'Excel exportado correctamente');
-    };
-
-    // Obtener entregables del proyecto seleccionado para la pestaña de gestión
-    const entregablesEditProyecto = getEntregablesProyecto(selectedProyectoEdit);
-    const proyectoEdit = proyectos.find(p => p.id === selectedProyectoEdit);
-
-    // Datos para EDP
-    const edpData = calcularEDPEntregables();
-    const porProyecto = agruparPorProyecto(edpData);
-    const totalGeneral = edpData.reduce((s, e) => s + e.valor, 0);
-
     return (
       <div className="space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-xl text-neutral-800 dark:text-neutral-100 font-light">Administración de Proyectos</h1>
-          <p className="text-neutral-500 dark:text-neutral-400 text-sm">Gestión de entregables, EDP y control de proyectos</p>
+          <h1 className="text-xl text-neutral-800 dark:text-neutral-100 font-light">Cotizaciones</h1>
+          <p className="text-neutral-500 dark:text-neutral-400 text-sm">Gestión de cotizaciones de proyectos</p>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 bg-neutral-200 dark:bg-neutral-700 p-1 rounded-lg w-fit">
-          <button
-            onClick={() => setFacturacionTab('entregables')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              facturacionTab === 'entregables'
-                ? 'bg-white dark:bg-neutral-800 text-orange-600 shadow-sm'
-                : 'text-neutral-600 dark:text-neutral-300 hover:text-neutral-800 dark:hover:text-neutral-100'
-            }`}
-          >
-            Entregables
-          </button>
-          <button
-            onClick={() => setFacturacionTab('edp')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              facturacionTab === 'edp'
-                ? 'bg-white dark:bg-neutral-800 text-orange-600 shadow-sm'
-                : 'text-neutral-600 dark:text-neutral-300 hover:text-neutral-800 dark:hover:text-neutral-100'
-            }`}
-          >
-            EDP
-          </button>
-          <button
-            onClick={() => setFacturacionTab('cot')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              facturacionTab === 'cot'
-                ? 'bg-white dark:bg-neutral-800 text-orange-600 shadow-sm'
-                : 'text-neutral-600 dark:text-neutral-300 hover:text-neutral-800 dark:hover:text-neutral-100'
-            }`}
-          >
-            COT
-          </button>
-        </div>
-
-        {/* ==================== PESTAÑA ENTREGABLES ==================== */}
-        {facturacionTab === 'entregables' && (
-          <div className="space-y-4">
-            {/* Selector de proyecto */}
-            <Card className="p-4">
-              <div className="flex flex-wrap items-end gap-4">
-                <Select
-                  label="Proyecto"
-                  value={selectedProyectoEdit}
-                  onChange={e => setSelectedProyectoEdit(e.target.value)}
-                >
-                  {proyectos.map(p => (
-                    <option key={p.id} value={p.id}>{p.id} - {p.nombre}</option>
-                  ))}
-                </Select>
-                <Button onClick={() => setShowAddEntregable(true)} variant="secondary">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Agregar Entregable
-                </Button>
-              </div>
-            </Card>
-
-            {/* Lista de entregables */}
-            <Card className="p-4">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-neutral-800 dark:text-neutral-100 text-sm font-medium">
-                  Entregables de {selectedProyectoEdit}
-                </h2>
-                <span className="text-xs text-neutral-500 dark:text-neutral-400">
-                  {entregablesEditProyecto.filter(e => !e.frozen).length} activos / {entregablesEditProyecto.length} total
-                </span>
-              </div>
-
-              {entregablesEditProyecto.length === 0 ? (
-                <div className="text-center py-8 text-neutral-500 dark:text-neutral-400">
-                  <FileText className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p>No hay entregables en este proyecto</p>
-                  <p className="text-xs mt-2">Sube un Excel o agrega entregables manualmente</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-left text-neutral-500 dark:text-neutral-400 border-b border-neutral-200 dark:border-neutral-600">
-                        <th className="pb-2 w-8">#</th>
-                        <th className="pb-2">Código</th>
-                        <th className="pb-2">Descripción</th>
-                        <th className="pb-2 text-center">Tipo</th>
-                        <th className="pb-2 text-center">Sem</th>
-                        <th className="pb-2 text-right">REV_A (HsH)</th>
-                        <th className="pb-2 text-right">REV_B (HsH)</th>
-                        <th className="pb-2 text-right">REV_0 (HsH)</th>
-                        <th className="pb-2 text-center">Estado</th>
-                        <th className="pb-2 text-center">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {entregablesEditProyecto.map((ent, i) => (
-                        <tr key={ent.id} className={`border-b border-neutral-200 dark:border-neutral-600 ${ent.frozen ? 'opacity-50 bg-neutral-100 dark:bg-neutral-800' : i % 2 === 0 ? '' : 'bg-neutral-50 dark:bg-neutral-800/30'}`}>
-                          <td className="py-2 text-neutral-400">{ent.id}</td>
-                          <td className="py-2">
-                            {editingEntregable === ent.id ? (
-                              <input
-                                type="text"
-                                defaultValue={ent.codigo}
-                                className="w-24 px-1 py-0.5 border rounded text-xs dark:bg-neutral-700 dark:border-neutral-600"
-                                onBlur={e => updateEntregable(selectedProyectoEdit, ent.id, { codigo: e.target.value })}
-                              />
-                            ) : (
-                              <span className="font-mono text-neutral-600 dark:text-neutral-300">{ent.codigo || '-'}</span>
-                            )}
-                          </td>
-                          <td className="py-2 text-neutral-800 dark:text-neutral-100 max-w-xs">
-                            {editingEntregable === ent.id ? (
-                              <input
-                                type="text"
-                                defaultValue={ent.nombre}
-                                className="w-full px-1 py-0.5 border rounded text-xs dark:bg-neutral-700 dark:border-neutral-600"
-                                onBlur={e => updateEntregable(selectedProyectoEdit, ent.id, { nombre: e.target.value })}
-                              />
-                            ) : (
-                              <span className="truncate block">{ent.nombre}</span>
-                            )}
-                          </td>
-                          <td className="py-2 text-center">
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${getTipoColor(getTipoDocumento(ent.codigo, ent.nombre, ent.tipo))}`}>
-                              {getTipoDocumento(ent.codigo, ent.nombre, ent.tipo)}
-                            </span>
-                          </td>
-                          <td className="py-2 text-center">
-                            {editingEntregable === ent.id ? (
-                              <input
-                                type="number"
-                                min="1"
-                                max="52"
-                                defaultValue={ent.weekStart || ent.secuencia || 1}
-                                className="w-12 px-1 py-0.5 border rounded text-xs text-center dark:bg-neutral-700 dark:border-neutral-600"
-                                onBlur={e => updateEntregable(selectedProyectoEdit, ent.id, { weekStart: parseInt(e.target.value) || 1 })}
-                              />
-                            ) : (
-                              <span className="text-neutral-500">S{getWeekOfYear(new Date(proyectoEdit?.inicio || dashboardStartDate)) + (ent.weekStart || ent.secuencia || 1) - 1}</span>
-                            )}
-                          </td>
-                          <td className="py-2 text-right">
-                            {editingEntregable === ent.id ? (
-                              <input
-                                type="number"
-                                step="0.1"
-                                defaultValue={ent.valorRevA}
-                                className="w-16 px-1 py-0.5 border rounded text-xs text-right dark:bg-neutral-700 dark:border-neutral-600"
-                                onBlur={e => updateEntregable(selectedProyectoEdit, ent.id, { valorRevA: parseFloat(e.target.value) || 0 })}
-                              />
-                            ) : (
-                              <span className="text-green-600">{ent.valorRevA?.toFixed(1) || '0'}</span>
-                            )}
-                          </td>
-                          <td className="py-2 text-right">
-                            {ent.hshDirecto || ['REU', 'VIS'].includes(getTipoDocumento(ent.codigo, ent.nombre, ent.tipo)) ? (
-                              <span className="text-neutral-400">-</span>
-                            ) : editingEntregable === ent.id ? (
-                              <input
-                                type="number"
-                                step="0.1"
-                                defaultValue={ent.valorRevB}
-                                className="w-16 px-1 py-0.5 border rounded text-xs text-right dark:bg-neutral-700 dark:border-neutral-600"
-                                onBlur={e => updateEntregable(selectedProyectoEdit, ent.id, { valorRevB: parseFloat(e.target.value) || 0 })}
-                              />
-                            ) : (
-                              <span className="text-blue-600">{ent.valorRevB?.toFixed(1) || '0'}</span>
-                            )}
-                          </td>
-                          <td className="py-2 text-right">
-                            {ent.hshDirecto || ['REU', 'VIS'].includes(getTipoDocumento(ent.codigo, ent.nombre, ent.tipo)) ? (
-                              <span className="text-neutral-400">-</span>
-                            ) : editingEntregable === ent.id ? (
-                              <input
-                                type="number"
-                                step="0.1"
-                                defaultValue={ent.valorRev0}
-                                className="w-16 px-1 py-0.5 border rounded text-xs text-right dark:bg-neutral-700 dark:border-neutral-600"
-                                onBlur={e => updateEntregable(selectedProyectoEdit, ent.id, { valorRev0: parseFloat(e.target.value) || 0 })}
-                              />
-                            ) : (
-                              <span className="text-purple-600">{ent.valorRev0?.toFixed(1) || '0'}</span>
-                            )}
-                          </td>
-                          <td className="py-2 text-center">
-                            {ent.frozen ? (
-                              <span className="px-2 py-0.5 bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 rounded text-[10px] font-medium">
-                                FREEZE
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300 rounded text-[10px] font-medium">
-                                Activo
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-2 text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <button
-                                onClick={() => setEditingEntregable(editingEntregable === ent.id ? null : ent.id)}
-                                className={`p-1 rounded hover:bg-neutral-200 dark:hover:bg-neutral-600 ${editingEntregable === ent.id ? 'text-orange-500' : 'text-neutral-500'}`}
-                                title={editingEntregable === ent.id ? 'Terminar edición' : 'Editar'}
-                              >
-                                {editingEntregable === ent.id ? <Check className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
-                              </button>
-                              <button
-                                onClick={() => showFreezeConfirm(selectedProyectoEdit, ent.id, ent.nombre)}
-                                className={`p-1 rounded hover:bg-neutral-200 dark:hover:bg-neutral-600 ${ent.frozen ? 'text-blue-400' : 'text-neutral-500'}`}
-                                title={ent.frozen ? 'Descongelar' : 'Congelar'}
-                              >
-                                <Snowflake className={`w-3.5 h-3.5 ${ent.frozen ? 'fill-blue-200' : ''}`} />
-                              </button>
-                              <button
-                                onClick={() => showDeleteEntregableConfirm(selectedProyectoEdit, ent.id, ent.nombre)}
-                                className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-neutral-500 hover:text-red-500"
-                                title="Eliminar entregable"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {/* Totales */}
-              {entregablesEditProyecto.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-neutral-200 dark:border-neutral-600">
-                  <div className="flex justify-end gap-6 text-sm">
-                    <div className="text-right">
-                      <p className="text-neutral-500 dark:text-neutral-400 text-xs">Total REV_A</p>
-                      <p className="text-green-600 font-medium">
-                        {entregablesEditProyecto.filter(e => !e.frozen).reduce((s, e) => s + (e.valorRevA || 0), 0).toFixed(1)} HsH
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-neutral-500 dark:text-neutral-400 text-xs">Total REV_B</p>
-                      <p className="text-blue-600 font-medium">
-                        {entregablesEditProyecto.filter(e => !e.frozen).reduce((s, e) => s + (e.valorRevB || 0), 0).toFixed(1)} HsH
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-neutral-500 dark:text-neutral-400 text-xs">Total REV_0</p>
-                      <p className="text-purple-600 font-medium">
-                        {entregablesEditProyecto.filter(e => !e.frozen).reduce((s, e) => s + (e.valorRev0 || 0), 0).toFixed(1)} HsH
-                      </p>
-                    </div>
-                    <div className="text-right border-l border-neutral-300 dark:border-neutral-600 pl-6">
-                      <p className="text-neutral-500 dark:text-neutral-400 text-xs">Total Proyecto</p>
-                      <p className="text-orange-500 font-bold text-lg">
-                        {entregablesEditProyecto.filter(e => !e.frozen).reduce((s, e) => s + (e.valorRevA || 0) + (e.valorRevB || 0) + (e.valorRev0 || 0), 0).toFixed(1)} HsH
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </Card>
-
-            {/* Modal Agregar Entregable */}
-            {showAddEntregable && (
-              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                <div className="bg-white dark:bg-neutral-800 rounded-lg shadow-xl max-w-md w-full p-6">
-                  <h2 className="text-neutral-800 dark:text-neutral-100 font-medium mb-4">Agregar Entregable</h2>
-                  <div className="space-y-3">
-                    <Select
-                      label="Tipo de Entregable"
-                      value={nuevoEntregable.tipo}
-                      onChange={e => setNuevoEntregable(prev => ({ ...prev, tipo: e.target.value }))}
-                    >
-                      {TIPOS_ENTREGABLE.map(t => (
-                        <option key={t.id} value={t.id}>{t.id} - {t.nombre}</option>
-                      ))}
-                    </Select>
-                    <Input
-                      label="Código"
-                      placeholder="Ej: P2600-ARQ-PLA-001"
-                      value={nuevoEntregable.codigo}
-                      onChange={e => setNuevoEntregable(prev => ({ ...prev, codigo: e.target.value }))}
-                    />
-                    <Input
-                      label="Descripción"
-                      placeholder="Ej: Planta General Nivel 1"
-                      value={nuevoEntregable.nombre}
-                      onChange={e => setNuevoEntregable(prev => ({ ...prev, nombre: e.target.value }))}
-                    />
-                    <Input
-                      label="Semana de Entrega"
-                      type="number"
-                      min="1"
-                      max="52"
-                      value={nuevoEntregable.weekStart}
-                      onChange={e => setNuevoEntregable(prev => ({ ...prev, weekStart: e.target.value }))}
-                    />
-                    {/* REU y VIS tienen HsH directo (sin revisiones) */}
-                    {['REU', 'VIS'].includes(nuevoEntregable.tipo) ? (
-                      <Input
-                        label="HsH Directo"
-                        type="number"
-                        step="0.1"
-                        value={nuevoEntregable.hshDirecto}
-                        onChange={e => setNuevoEntregable(prev => ({ ...prev, hshDirecto: e.target.value }))}
-                      />
-                    ) : (
-                      <div className="grid grid-cols-3 gap-2">
-                        <Input
-                          label="REV_A (HsH)"
-                          type="number"
-                          step="0.1"
-                          value={nuevoEntregable.valorRevA}
-                          onChange={e => setNuevoEntregable(prev => ({ ...prev, valorRevA: e.target.value }))}
-                        />
-                        <Input
-                          label="REV_B (HsH)"
-                          type="number"
-                          step="0.1"
-                          value={nuevoEntregable.valorRevB}
-                          onChange={e => setNuevoEntregable(prev => ({ ...prev, valorRevB: e.target.value }))}
-                        />
-                        <Input
-                          label="REV_0 (HsH)"
-                          type="number"
-                          step="0.1"
-                          value={nuevoEntregable.valorRev0}
-                          onChange={e => setNuevoEntregable(prev => ({ ...prev, valorRev0: e.target.value }))}
-                        />
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex gap-2 mt-6">
-                    <Button variant="ghost" onClick={() => setShowAddEntregable(false)} className="flex-1">
-                      Cancelar
-                    </Button>
-                    <Button
-                      onClick={() => addEntregable(selectedProyectoEdit)}
-                      disabled={!nuevoEntregable.nombre}
-                      className="flex-1"
-                    >
-                      Agregar
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Modal de confirmación para congelar */}
-            {freezeConfirm.show && (
-              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                <div className="bg-white dark:bg-neutral-800 rounded-lg shadow-xl max-w-sm w-full p-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-full">
-                      <Snowflake className="w-5 h-5 text-blue-500" />
-                    </div>
-                    <h2 className="text-neutral-800 dark:text-neutral-100 font-medium">Confirmar Acción</h2>
-                  </div>
-                  <p className="text-neutral-600 dark:text-neutral-400 text-sm mb-4">
-                    ¿Estás seguro que deseas {(() => {
-                      const proyecto = proyectos.find(p => p.id === freezeConfirm.proyectoId);
-                      const entregable = proyecto?.entregables?.find(e => e.id === freezeConfirm.entregableId);
-                      return entregable?.frozen ? 'descongelar' : 'congelar';
-                    })()} el entregable <strong>"{freezeConfirm.nombre}"</strong>?
-                  </p>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-500 mb-4">
-                    Los entregables congelados aparecerán tachados en Control, Log y Carta.
-                  </p>
-                  <div className="flex gap-2">
-                    <Button variant="ghost" onClick={() => setFreezeConfirm({ show: false, proyectoId: null, entregableId: null, nombre: '' })} className="flex-1">
-                      Cancelar
-                    </Button>
-                    <Button onClick={toggleFreezeEntregable} className="flex-1">
-                      Confirmar
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Modal de confirmación para eliminar entregable */}
-            {deleteEntregableConfirm.show && (
-              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                <div className="bg-white dark:bg-neutral-800 rounded-lg shadow-xl max-w-sm w-full p-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full">
-                      <Trash2 className="w-5 h-5 text-red-500" />
-                    </div>
-                    <h2 className="text-neutral-800 dark:text-neutral-100 font-medium">Eliminar Entregable</h2>
-                  </div>
-                  <p className="text-neutral-600 dark:text-neutral-400 text-sm mb-4">
-                    ¿Estás seguro que deseas eliminar el entregable <strong>"{deleteEntregableConfirm.nombre}"</strong>?
-                  </p>
-                  <p className="text-xs text-red-500 dark:text-red-400 mb-4">
-                    Esta acción no se puede deshacer.
-                  </p>
-                  <div className="flex gap-2">
-                    <Button variant="ghost" onClick={() => setDeleteEntregableConfirm({ show: false, proyectoId: null, entregableId: null, nombre: '' })} className="flex-1">
-                      Cancelar
-                    </Button>
-                    <Button onClick={deleteEntregable} className="flex-1 bg-red-500 hover:bg-red-600">
-                      Eliminar
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ==================== PESTAÑA EDP ==================== */}
-        {facturacionTab === 'edp' && (
-          <div className="space-y-4">
-            {/* Selector de mes y proyecto */}
-            <Card className="p-4">
-              <div className="flex flex-wrap items-end gap-4">
-                <Input
-                  label="Mes a facturar"
-                  type="month"
-                  value={selectedMonth}
-                  onChange={e => setSelectedMonth(e.target.value)}
-                />
-                <Select
-                  label="Proyecto"
-                  value={selectedProyectoEDP}
-                  onChange={e => setSelectedProyectoEDP(e.target.value)}
-                >
-                  <option value="all">Todos los proyectos</option>
-                  {proyectos.map(p => (
-                    <option key={p.id} value={p.id}>{p.id} - {p.nombre}</option>
-                  ))}
-                </Select>
-                <div className="flex gap-2">
-                  <Button onClick={exportarXLSX} variant="secondary">
-                    <FileDown className="w-4 h-4 mr-2" />
-                    Exportar XLSX
-                  </Button>
-                  <Button onClick={() => setShowPreview(true)}>
-                    <Printer className="w-4 h-4 mr-2" />
-                    Vista PDF
-                  </Button>
-                </div>
-              </div>
-            </Card>
-
-            {/* Resumen EDP */}
-            <Card className="p-4">
-              <h2 className="text-neutral-800 dark:text-neutral-100 text-sm font-medium mb-4">
-                EDP - {new Date(selectedMonth + '-01').toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })}
-              </h2>
-
-              {edpData.length === 0 ? (
-                <div className="text-center py-8 text-neutral-500 dark:text-neutral-400">
-                  <FileSpreadsheet className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p>No hay entregables facturables en este período</p>
-                  <p className="text-xs mt-2">Los entregables aparecen aquí cuando se marcan en Control de Avance</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {Object.entries(porProyecto).map(([proyectoId, data]) => (
-                    <div key={proyectoId} className="p-4 bg-neutral-100 dark:bg-neutral-700 rounded-lg">
-                      <div className="flex items-center justify-between mb-3">
-                        <div>
-                          <span className="text-orange-500 font-mono font-bold">{proyectoId}</span>
-                          <span className="text-neutral-800 dark:text-neutral-100 ml-2">{data.nombre}</span>
-                        </div>
-                        <Badge variant="success">
-                          {data.totalUF.toFixed(2)} UF
-                        </Badge>
-                      </div>
-
-                      {/* Tabla de entregables con observaciones */}
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="text-left text-neutral-500 dark:text-neutral-400 border-b border-neutral-200 dark:border-neutral-600">
-                              <th className="pb-2">Código</th>
-                              <th className="pb-2">Descripción</th>
-                              <th className="pb-2 text-center">Tipo</th>
-                              <th className="pb-2 text-center">Rev</th>
-                              <th className="pb-2 text-center">Fecha</th>
-                              <th className="pb-2 text-right">HsH</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {data.entregables.map((e, i) => {
-                              const obsKey = `${e.proyectoId}_${e.entregableId}_${e.revision}`;
-                              return (
-                                <tr key={`${e.entregableId}-${e.revision}`} className={`border-b border-neutral-200 dark:border-neutral-600 ${i % 2 === 0 ? '' : 'bg-white/50 dark:bg-neutral-800/30'}`}>
-                                  <td className="py-2 font-mono text-neutral-600 dark:text-neutral-300">{e.codigo}</td>
-                                  <td className="py-2 text-neutral-800 dark:text-neutral-100 max-w-xs truncate">{e.nombre}</td>
-                                  <td className="py-2 text-center">
-                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                      e.tipo === 'CRD' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' :
-                                      e.tipo === 'EETT' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300' :
-                                      e.tipo === 'MTO' ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300' :
-                                      e.tipo === 'DETALLE' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300' :
-                                      e.tipo === 'VIS' ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/50 dark:text-teal-300' :
-                                      e.tipo === 'REU' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300' :
-                                      'bg-neutral-200 text-neutral-700 dark:bg-neutral-600 dark:text-neutral-300'
-                                    }`}>
-                                      {e.tipo}
-                                    </span>
-                                  </td>
-                                  <td className="py-2 text-center">
-                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                      e.esHsH ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300' :
-                                      e.revision === 'A' ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300' :
-                                      e.revision === 'B' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' :
-                                      'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300'
-                                    }`}>
-                                      {e.esHsH ? e.tipo : `REV_${e.revision}`}
-                                    </span>
-                                  </td>
-                                  <td className="py-2 text-center text-neutral-600 dark:text-neutral-300">{e.fecha}</td>
-                                  <td className="py-2 text-right text-green-600 dark:text-green-400 font-medium">{e.valor.toFixed(2)}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                          <tfoot>
-                            <tr className="font-medium">
-                              <td colSpan={5} className="pt-2 text-right text-neutral-600 dark:text-neutral-300">Subtotal {proyectoId}:</td>
-                              <td className="pt-2 text-right text-green-600 dark:text-green-400">{data.totalUF.toFixed(2)} UF</td>
-                              <td></td>
-                            </tr>
-                          </tfoot>
-                        </table>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Total general */}
-                  <div className="p-4 bg-orange-500/20 rounded-lg border border-orange-500/30">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-neutral-800 dark:text-neutral-100 font-medium">TOTAL EDP</span>
-                        <span className="text-neutral-500 dark:text-neutral-400 text-sm ml-2">
-                          ({edpData.length} registros)
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-2xl font-bold text-orange-500">
-                          {totalGeneral.toFixed(2)} HsH
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Resumen con Factor */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="p-4 bg-white dark:bg-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 text-center">
-                      <p className="text-neutral-500 dark:text-neutral-400 text-xs mb-1">HsH Mes en Curso</p>
-                      <p className="text-xl font-bold text-neutral-800 dark:text-neutral-100">{totalGeneral.toFixed(1)}</p>
-                    </div>
-                    <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800 text-center">
-                      <p className="text-orange-600 dark:text-orange-400 text-xs mb-1">Facturación (HsH)</p>
-                      <p className="text-xl font-bold text-orange-600">{totalGeneral.toFixed(1)}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </Card>
-          </div>
-        )}
-
-        {/* Modal de Vista Previa PDF */}
-        {showPreview && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white dark:bg-neutral-800 rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] overflow-hidden">
-              <div className="p-4 border-b border-neutral-200 dark:border-neutral-700 flex items-center justify-between no-print">
-                <h2 className="text-neutral-800 dark:text-neutral-100 font-medium">Vista Previa EDP</h2>
-                <div className="flex gap-2">
-                  <Button variant="secondary" onClick={() => window.print()}>
-                    <Printer className="w-4 h-4 mr-2" />
-                    Imprimir
-                  </Button>
-                  <Button variant="ghost" onClick={() => setShowPreview(false)}>
-                    <X className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-              <div className="p-4 overflow-auto max-h-[calc(90vh-80px)] print-content">
-                {/* Contenido para PDF - Una sola página */}
-                <div className="bg-white text-black">
-                  {/* Header con proyecto */}
-                  <div className="flex items-center justify-between mb-4 pb-3 border-b-2 border-orange-500">
-                    <div>
-                      <h1 className="text-xl font-bold text-neutral-800">ESTADO DE PAGO</h1>
-                      <p className="text-sm text-neutral-600">{new Date(selectedMonth + '-01').toLocaleDateString('es-CL', { month: 'long', year: 'numeric' }).toUpperCase()}</p>
-                      <p className="text-xs text-orange-600 font-medium mt-1">
-                        {selectedProyectoEDP !== 'all'
-                          ? `${selectedProyectoEDP} - ${proyectos.find(p => p.id === selectedProyectoEDP)?.nombre || ''}`
-                          : 'Todos los proyectos'}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-lg font-light tracking-widest">
-                        <span className="text-neutral-800">M</span>
-                        <span className="text-orange-500">A</span>
-                        <span className="text-neutral-800">TRIZ</span>
-                      </p>
-                      <p className="text-[7px] text-neutral-400 tracking-wider">ASSETS FOR NON-PROCESS INFRASTRUCTURE</p>
-                    </div>
-                  </div>
-
-                  {/* Tabla de entregables */}
-                  <table className="w-full text-[8px] border-collapse mb-3">
-                    <thead>
-                      <tr className="bg-neutral-800 text-white">
-                        <th className="border border-neutral-300 px-1.5 py-1 text-center">TIPO</th>
-                        <th className="border border-neutral-300 px-1.5 py-1 text-left">CÓDIGO</th>
-                        <th className="border border-neutral-300 px-1.5 py-1 text-left">DESCRIPCIÓN</th>
-                        <th className="border border-neutral-300 px-1.5 py-1 text-center">REV</th>
-                        <th className="border border-neutral-300 px-1.5 py-1 text-center">FECHA</th>
-                        <th className="border border-neutral-300 px-1.5 py-1 text-right">HsH</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {edpData.map((e, i) => (
-                        <tr key={`${e.entregableId}-${e.revision}`} className={i % 2 === 0 ? 'bg-white' : 'bg-neutral-50'}>
-                          <td className="border border-neutral-300 px-1.5 py-0.5 text-center">{e.tipo}</td>
-                          <td className="border border-neutral-300 px-1.5 py-0.5 font-mono">{e.codigo}</td>
-                          <td className="border border-neutral-300 px-1.5 py-0.5">{e.nombre}</td>
-                          <td className="border border-neutral-300 px-1.5 py-0.5 text-center">{e.esHsH ? '-' : `REV_${e.revision}`}</td>
-                          <td className="border border-neutral-300 px-1.5 py-0.5 text-center">{e.fecha}</td>
-                          <td className="border border-neutral-300 px-1.5 py-0.5 text-right font-medium">{e.valor.toFixed(2)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="bg-orange-100 font-bold">
-                        <td colSpan={5} className="border border-neutral-300 px-1.5 py-1 text-right">TOTAL HsH:</td>
-                        <td className="border border-neutral-300 px-1.5 py-1 text-right text-orange-600">{totalGeneral.toFixed(2)}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
-
-                  {/* Resumen compacto */}
-                  <div className="mt-3 p-2 bg-neutral-50 border border-neutral-200 rounded">
-                    <div className="grid grid-cols-4 gap-2 text-[9px]">
-                      {(() => {
-                        // Calcular totales para el resumen
-                        let totalProyectoHsH = 0;
-                        let mesAnteriorHsH = 0;
-                        const mesEnCursoHsH = totalGeneral;
-
-                        Object.entries(porProyecto).forEach(([pid, pdata]) => {
-                          const proyecto = proyectos.find(p => p.id === pid);
-                          if (proyecto && proyecto.entregables) {
-                            proyecto.entregables.forEach(ent => {
-                              if (!ent.frozen) {
-                                // Total presupuestado del proyecto
-                                totalProyectoHsH += (ent.valorRevA || 0) + (ent.valorRevB || 0) + (ent.valorRev0 || 0);
-                                // Mes anterior: lo que ya se facturó (avance anterior)
-                                const avanceAnterior = (ent.avanceAnterior || 0) / 100;
-                                const valorTotal = (ent.valorRevA || 0) + (ent.valorRevB || 0) + (ent.valorRev0 || 0);
-                                mesAnteriorHsH += valorTotal * avanceAnterior;
-                              }
-                            });
-                          }
-                        });
-
-                        const totalPendienteHsH = Math.max(0, totalProyectoHsH - mesAnteriorHsH - mesEnCursoHsH);
-
-                        return (
-                          <>
-                            <div className="text-center p-1.5 bg-white rounded border">
-                              <p className="text-neutral-500 text-[8px]">Total Proyecto</p>
-                              <p className="font-bold text-neutral-800 text-xs">{totalProyectoHsH.toFixed(1)}</p>
-                            </div>
-                            <div className="text-center p-1.5 bg-white rounded border">
-                              <p className="text-neutral-500 text-[8px]">Mes Anterior</p>
-                              <p className="font-bold text-neutral-600 text-xs">{mesAnteriorHsH.toFixed(1)}</p>
-                            </div>
-                            <div className="text-center p-1.5 bg-orange-50 rounded border border-orange-200">
-                              <p className="text-orange-600 text-[8px]">Mes en Curso</p>
-                              <p className="font-bold text-orange-600 text-sm">{mesEnCursoHsH.toFixed(1)}</p>
-                            </div>
-                            <div className="text-center p-1.5 bg-orange-100 rounded border border-orange-300">
-                              <p className="text-orange-700 text-[8px]">Total Pendiente</p>
-                              <p className="font-bold text-orange-600 text-sm">{totalPendienteHsH.toFixed(1)}</p>
-                            </div>
-                          </>
-                        );
-                      })()}
-                    </div>
-
-                    {/* Segunda fila: Facturación */}
-                    <div className="grid grid-cols-2 gap-2 text-[9px] mt-2">
-                      <div className="text-center p-1.5 bg-white rounded border">
-                        <p className="text-neutral-500 text-[8px]">HsH Mes en Curso</p>
-                        <p className="font-bold text-neutral-800 text-xs">{totalGeneral.toFixed(1)}</p>
-                      </div>
-                      <div className="text-center p-1.5 bg-orange-50 rounded border border-orange-200">
-                        <p className="text-orange-600 text-[8px]">Facturación</p>
-                        <p className="font-bold text-orange-600 text-sm">{totalGeneral.toFixed(1)} HsH</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Sección de Firmas */}
-                  <div className="mt-8 pt-4 border-t border-neutral-300">
-                    <div className="grid grid-cols-2 gap-8">
-                      {/* Firma Jefe de Proyecto */}
-                      <div className="text-center">
-                        <div className="border-b border-neutral-400 h-12 mb-2"></div>
-                        <p className="text-[10px] font-bold text-neutral-700">Jefe de Proyecto {selectedProyectoEDP !== 'all' ? selectedProyectoEDP : ''}</p>
-                        <p className="text-[9px] text-neutral-600">{selectedProyectoEDP !== 'all' ? (proyectos.find(p => p.id === selectedProyectoEDP)?.jefeProyecto || '') : ''}</p>
-                      </div>
-                      {/* Firma Líder de Arquitectura */}
-                      <div className="text-center">
-                        <div className="border-b border-neutral-400 h-12 mb-2"></div>
-                        <p className="text-[10px] font-bold text-neutral-700">Líder de Arquitectura</p>
-                        <p className="text-[9px] text-neutral-600">Sebastián A. Vizcarra</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Footer */}
-                  <div className="mt-6 pt-4 border-t border-neutral-200 text-[8px] text-neutral-400 flex justify-between">
-                    <span>Generado: {new Date().toLocaleString('es-CL')}</span>
-                    <span>AFOR Intranet v1.0</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ==================== PESTAÑA COT (COTIZACIÓN) ==================== */}
-        {facturacionTab === 'cot' && (
           <Card className="p-4 sm:p-6">
             {/* Header con botones de modo */}
             <div className="mb-6 flex items-center justify-between">
@@ -4606,7 +3801,6 @@ export default function MatrizIntranet() {
             </div>
             )}
           </Card>
-        )}
 
         {/* ==================== MODAL PREVIEW COTIZACIÓN ==================== */}
         {cotShowPreview && (
@@ -6060,7 +5254,7 @@ ${cotHtml}
               </div>
               
               {/* Tabs */}
-              <div className="grid grid-cols-4 gap-1 bg-neutral-100 dark:bg-neutral-800 p-1 rounded-lg">
+              <div className="grid grid-cols-6 gap-1 bg-neutral-100 dark:bg-neutral-800 p-1 rounded-lg">
                 <button
                   onClick={() => setDashboardTab('resumen')}
                   className={`flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-2 py-2.5 sm:py-2 rounded text-[10px] sm:text-xs transition-all ${
@@ -6096,6 +5290,24 @@ ${cotHtml}
                 >
                   <Calendar className="w-4 h-4" />
                   <span>Carta</span>
+                </button>
+                <button
+                  onClick={() => setDashboardTab('entregables')}
+                  className={`flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-2 py-2.5 sm:py-2 rounded text-[10px] sm:text-xs transition-all ${
+                    dashboardTab === 'entregables' ? 'bg-orange-600 text-white shadow-sm' : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-white hover:bg-white dark:hover:bg-neutral-700'
+                  }`}
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span>Entregables</span>
+                </button>
+                <button
+                  onClick={() => setDashboardTab('edp')}
+                  className={`flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-2 py-2.5 sm:py-2 rounded text-[10px] sm:text-xs transition-all ${
+                    dashboardTab === 'edp' ? 'bg-orange-600 text-white shadow-sm' : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-white hover:bg-white dark:hover:bg-neutral-700'
+                  }`}
+                >
+                  <FileDown className="w-4 h-4" />
+                  <span>EDP</span>
                 </button>
               </div>
               
@@ -6681,6 +5893,605 @@ ${cotHtml}
                         </div>
                       </Card>
                     )}
+
+                    {/* ==================== PESTAÑA ENTREGABLES ==================== */}
+                    {dashboardTab === 'entregables' && (
+                      <div className="space-y-4">
+                        <Card className="p-4">
+                          <div className="flex flex-wrap items-end gap-4">
+                            <div className="flex-1">
+                              <h2 className="text-neutral-800 dark:text-neutral-100 text-sm font-medium">
+                                Entregables de {selectedProject}
+                              </h2>
+                              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                                {getEntregablesProyecto(selectedProject).filter(e => !e.frozen).length} activos / {getEntregablesProyecto(selectedProject).length} total
+                              </p>
+                            </div>
+                            <Button onClick={() => setShowAddEntregable(true)} variant="secondary">
+                              <Plus className="w-4 h-4 mr-2" />
+                              Agregar Entregable
+                            </Button>
+                          </div>
+                        </Card>
+
+                        <Card className="p-4">
+                          {getEntregablesProyecto(selectedProject).length === 0 ? (
+                            <div className="text-center py-8 text-neutral-500 dark:text-neutral-400">
+                              <FileText className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                              <p>No hay entregables en este proyecto</p>
+                              <p className="text-xs mt-2">Sube un Excel o agrega entregables manualmente</p>
+                            </div>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="text-left text-neutral-500 dark:text-neutral-400 border-b border-neutral-200 dark:border-neutral-600">
+                                    <th className="pb-2 w-8">#</th>
+                                    <th className="pb-2">Código</th>
+                                    <th className="pb-2">Descripción</th>
+                                    <th className="pb-2 text-center">Tipo</th>
+                                    <th className="pb-2 text-center">Sem</th>
+                                    <th className="pb-2 text-right">REV_A (HsH)</th>
+                                    <th className="pb-2 text-right">REV_B (HsH)</th>
+                                    <th className="pb-2 text-right">REV_0 (HsH)</th>
+                                    <th className="pb-2 text-center">Estado</th>
+                                    <th className="pb-2 text-center">Acciones</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {getEntregablesProyecto(selectedProject).map((ent, i) => (
+                                    <tr key={ent.id} className={`border-b border-neutral-200 dark:border-neutral-600 ${ent.frozen ? 'opacity-50 bg-neutral-100 dark:bg-neutral-800' : i % 2 === 0 ? '' : 'bg-neutral-50 dark:bg-neutral-800/30'}`}>
+                                      <td className="py-2 text-neutral-400">{ent.id}</td>
+                                      <td className="py-2">
+                                        {editingEntregable === ent.id ? (
+                                          <input
+                                            type="text"
+                                            defaultValue={ent.codigo}
+                                            className="w-24 px-1 py-0.5 border rounded text-xs dark:bg-neutral-700 dark:border-neutral-600"
+                                            onBlur={e => updateEntregable(selectedProject, ent.id, { codigo: e.target.value })}
+                                          />
+                                        ) : (
+                                          <span className="font-mono text-neutral-600 dark:text-neutral-300">{ent.codigo || '-'}</span>
+                                        )}
+                                      </td>
+                                      <td className="py-2 text-neutral-800 dark:text-neutral-100 max-w-xs">
+                                        {editingEntregable === ent.id ? (
+                                          <input
+                                            type="text"
+                                            defaultValue={ent.nombre}
+                                            className="w-full px-1 py-0.5 border rounded text-xs dark:bg-neutral-700 dark:border-neutral-600"
+                                            onBlur={e => updateEntregable(selectedProject, ent.id, { nombre: e.target.value })}
+                                          />
+                                        ) : (
+                                          <span className="truncate block">{ent.nombre}</span>
+                                        )}
+                                      </td>
+                                      <td className="py-2 text-center">
+                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${getTipoColor(getTipoDocumento(ent.codigo, ent.nombre, ent.tipo))}`}>
+                                          {getTipoDocumento(ent.codigo, ent.nombre, ent.tipo)}
+                                        </span>
+                                      </td>
+                                      <td className="py-2 text-center">
+                                        {editingEntregable === ent.id ? (
+                                          <input
+                                            type="number"
+                                            min="1"
+                                            max="52"
+                                            defaultValue={ent.weekStart || ent.secuencia || 1}
+                                            className="w-12 px-1 py-0.5 border rounded text-xs text-center dark:bg-neutral-700 dark:border-neutral-600"
+                                            onBlur={e => updateEntregable(selectedProject, ent.id, { weekStart: parseInt(e.target.value) || 1 })}
+                                          />
+                                        ) : (
+                                          <span className="text-neutral-500">S{getWeekOfYear(new Date(proyectoActual?.inicio || dashboardStartDate)) + (ent.weekStart || ent.secuencia || 1) - 1}</span>
+                                        )}
+                                      </td>
+                                      <td className="py-2 text-right">
+                                        {editingEntregable === ent.id ? (
+                                          <input
+                                            type="number"
+                                            step="0.1"
+                                            defaultValue={ent.valorRevA}
+                                            className="w-16 px-1 py-0.5 border rounded text-xs text-right dark:bg-neutral-700 dark:border-neutral-600"
+                                            onBlur={e => updateEntregable(selectedProject, ent.id, { valorRevA: parseFloat(e.target.value) || 0 })}
+                                          />
+                                        ) : (
+                                          <span className="text-green-600">{ent.valorRevA?.toFixed(1) || '0'}</span>
+                                        )}
+                                      </td>
+                                      <td className="py-2 text-right">
+                                        {ent.hshDirecto || ['REU', 'VIS'].includes(getTipoDocumento(ent.codigo, ent.nombre, ent.tipo)) ? (
+                                          <span className="text-neutral-400">-</span>
+                                        ) : editingEntregable === ent.id ? (
+                                          <input
+                                            type="number"
+                                            step="0.1"
+                                            defaultValue={ent.valorRevB}
+                                            className="w-16 px-1 py-0.5 border rounded text-xs text-right dark:bg-neutral-700 dark:border-neutral-600"
+                                            onBlur={e => updateEntregable(selectedProject, ent.id, { valorRevB: parseFloat(e.target.value) || 0 })}
+                                          />
+                                        ) : (
+                                          <span className="text-blue-600">{ent.valorRevB?.toFixed(1) || '0'}</span>
+                                        )}
+                                      </td>
+                                      <td className="py-2 text-right">
+                                        {ent.hshDirecto || ['REU', 'VIS'].includes(getTipoDocumento(ent.codigo, ent.nombre, ent.tipo)) ? (
+                                          <span className="text-neutral-400">-</span>
+                                        ) : editingEntregable === ent.id ? (
+                                          <input
+                                            type="number"
+                                            step="0.1"
+                                            defaultValue={ent.valorRev0}
+                                            className="w-16 px-1 py-0.5 border rounded text-xs text-right dark:bg-neutral-700 dark:border-neutral-600"
+                                            onBlur={e => updateEntregable(selectedProject, ent.id, { valorRev0: parseFloat(e.target.value) || 0 })}
+                                          />
+                                        ) : (
+                                          <span className="text-purple-600">{ent.valorRev0?.toFixed(1) || '0'}</span>
+                                        )}
+                                      </td>
+                                      <td className="py-2 text-center">
+                                        {ent.frozen ? (
+                                          <span className="px-2 py-0.5 bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 rounded text-[10px] font-medium">
+                                            FREEZE
+                                          </span>
+                                        ) : (
+                                          <span className="px-2 py-0.5 bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300 rounded text-[10px] font-medium">
+                                            Activo
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td className="py-2 text-center">
+                                        <div className="flex items-center justify-center gap-1">
+                                          <button
+                                            onClick={() => setEditingEntregable(editingEntregable === ent.id ? null : ent.id)}
+                                            className={`p-1 rounded hover:bg-neutral-200 dark:hover:bg-neutral-600 ${editingEntregable === ent.id ? 'text-orange-500' : 'text-neutral-500'}`}
+                                            title={editingEntregable === ent.id ? 'Terminar edición' : 'Editar'}
+                                          >
+                                            {editingEntregable === ent.id ? <Check className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+                                          </button>
+                                          <button
+                                            onClick={() => showFreezeConfirmFn(selectedProject, ent.id, ent.nombre)}
+                                            className={`p-1 rounded hover:bg-neutral-200 dark:hover:bg-neutral-600 ${ent.frozen ? 'text-blue-400' : 'text-neutral-500'}`}
+                                            title={ent.frozen ? 'Descongelar' : 'Congelar'}
+                                          >
+                                            <Snowflake className={`w-3.5 h-3.5 ${ent.frozen ? 'fill-blue-200' : ''}`} />
+                                          </button>
+                                          <button
+                                            onClick={() => showDeleteEntregableConfirmFn(selectedProject, ent.id, ent.nombre)}
+                                            className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-neutral-500 hover:text-red-500"
+                                            title="Eliminar entregable"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+
+                          {/* Totales */}
+                          {getEntregablesProyecto(selectedProject).length > 0 && (() => {
+                            const ents = getEntregablesProyecto(selectedProject).filter(e => !e.frozen);
+                            return (
+                              <div className="mt-4 pt-4 border-t border-neutral-200 dark:border-neutral-600">
+                                <div className="flex justify-end gap-6 text-sm">
+                                  <div className="text-right">
+                                    <p className="text-neutral-500 dark:text-neutral-400 text-xs">Total REV_A</p>
+                                    <p className="text-green-600 font-medium">
+                                      {ents.reduce((s, e) => s + (e.valorRevA || 0), 0).toFixed(1)} HsH
+                                    </p>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-neutral-500 dark:text-neutral-400 text-xs">Total REV_B</p>
+                                    <p className="text-blue-600 font-medium">
+                                      {ents.reduce((s, e) => s + (e.valorRevB || 0), 0).toFixed(1)} HsH
+                                    </p>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-neutral-500 dark:text-neutral-400 text-xs">Total REV_0</p>
+                                    <p className="text-purple-600 font-medium">
+                                      {ents.reduce((s, e) => s + (e.valorRev0 || 0), 0).toFixed(1)} HsH
+                                    </p>
+                                  </div>
+                                  <div className="text-right border-l border-neutral-300 dark:border-neutral-600 pl-6">
+                                    <p className="text-neutral-500 dark:text-neutral-400 text-xs">Total Proyecto</p>
+                                    <p className="text-orange-500 font-bold text-lg">
+                                      {ents.reduce((s, e) => s + (e.valorRevA || 0) + (e.valorRevB || 0) + (e.valorRev0 || 0), 0).toFixed(1)} HsH
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </Card>
+
+                        {/* Modal Agregar Entregable */}
+                        {showAddEntregable && (
+                          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white dark:bg-neutral-800 rounded-lg shadow-xl max-w-md w-full p-6">
+                              <h2 className="text-neutral-800 dark:text-neutral-100 font-medium mb-4">Agregar Entregable</h2>
+                              <div className="space-y-3">
+                                <Select
+                                  label="Tipo de Entregable"
+                                  value={nuevoEntregable.tipo}
+                                  onChange={e => setNuevoEntregable(prev => ({ ...prev, tipo: e.target.value }))}
+                                >
+                                  {TIPOS_ENTREGABLE.map(t => (
+                                    <option key={t.id} value={t.id}>{t.id} - {t.nombre}</option>
+                                  ))}
+                                </Select>
+                                <Input
+                                  label="Código"
+                                  placeholder="Ej: P2600-ARQ-PLA-001"
+                                  value={nuevoEntregable.codigo}
+                                  onChange={e => setNuevoEntregable(prev => ({ ...prev, codigo: e.target.value }))}
+                                />
+                                <Input
+                                  label="Descripción"
+                                  placeholder="Ej: Planta General Nivel 1"
+                                  value={nuevoEntregable.nombre}
+                                  onChange={e => setNuevoEntregable(prev => ({ ...prev, nombre: e.target.value }))}
+                                />
+                                <Input
+                                  label="Semana de Entrega"
+                                  type="number"
+                                  min="1"
+                                  max="52"
+                                  value={nuevoEntregable.weekStart}
+                                  onChange={e => setNuevoEntregable(prev => ({ ...prev, weekStart: e.target.value }))}
+                                />
+                                {['REU', 'VIS'].includes(nuevoEntregable.tipo) ? (
+                                  <Input
+                                    label="HsH Directo"
+                                    type="number"
+                                    step="0.1"
+                                    value={nuevoEntregable.hshDirecto}
+                                    onChange={e => setNuevoEntregable(prev => ({ ...prev, hshDirecto: e.target.value }))}
+                                  />
+                                ) : (
+                                  <div className="grid grid-cols-3 gap-2">
+                                    <Input
+                                      label="REV_A (HsH)"
+                                      type="number"
+                                      step="0.1"
+                                      value={nuevoEntregable.valorRevA}
+                                      onChange={e => setNuevoEntregable(prev => ({ ...prev, valorRevA: e.target.value }))}
+                                    />
+                                    <Input
+                                      label="REV_B (HsH)"
+                                      type="number"
+                                      step="0.1"
+                                      value={nuevoEntregable.valorRevB}
+                                      onChange={e => setNuevoEntregable(prev => ({ ...prev, valorRevB: e.target.value }))}
+                                    />
+                                    <Input
+                                      label="REV_0 (HsH)"
+                                      type="number"
+                                      step="0.1"
+                                      value={nuevoEntregable.valorRev0}
+                                      onChange={e => setNuevoEntregable(prev => ({ ...prev, valorRev0: e.target.value }))}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex gap-2 mt-6">
+                                <Button variant="ghost" onClick={() => setShowAddEntregable(false)} className="flex-1">
+                                  Cancelar
+                                </Button>
+                                <Button
+                                  onClick={() => addEntregable(selectedProject)}
+                                  disabled={!nuevoEntregable.nombre}
+                                  className="flex-1"
+                                >
+                                  Agregar
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Modal de confirmación para congelar */}
+                        {freezeConfirm.show && (
+                          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white dark:bg-neutral-800 rounded-lg shadow-xl max-w-sm w-full p-6">
+                              <div className="flex items-center gap-3 mb-4">
+                                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-full">
+                                  <Snowflake className="w-5 h-5 text-blue-500" />
+                                </div>
+                                <h2 className="text-neutral-800 dark:text-neutral-100 font-medium">Confirmar Acción</h2>
+                              </div>
+                              <p className="text-neutral-600 dark:text-neutral-400 text-sm mb-4">
+                                ¿Estás seguro que deseas {(() => {
+                                  const proyecto = proyectos.find(p => p.id === freezeConfirm.proyectoId);
+                                  const entregable = proyecto?.entregables?.find(e => e.id === freezeConfirm.entregableId);
+                                  return entregable?.frozen ? 'descongelar' : 'congelar';
+                                })()} el entregable <strong>"{freezeConfirm.nombre}"</strong>?
+                              </p>
+                              <p className="text-xs text-neutral-500 dark:text-neutral-500 mb-4">
+                                Los entregables congelados aparecerán tachados en Control, Log y Carta.
+                              </p>
+                              <div className="flex gap-2">
+                                <Button variant="ghost" onClick={() => setFreezeConfirm({ show: false, proyectoId: null, entregableId: null, nombre: '' })} className="flex-1">
+                                  Cancelar
+                                </Button>
+                                <Button onClick={toggleFreezeEntregable} className="flex-1">
+                                  Confirmar
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Modal de confirmación para eliminar entregable */}
+                        {deleteEntregableConfirm.show && (
+                          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white dark:bg-neutral-800 rounded-lg shadow-xl max-w-sm w-full p-6">
+                              <div className="flex items-center gap-3 mb-4">
+                                <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full">
+                                  <Trash2 className="w-5 h-5 text-red-500" />
+                                </div>
+                                <h2 className="text-neutral-800 dark:text-neutral-100 font-medium">Eliminar Entregable</h2>
+                              </div>
+                              <p className="text-neutral-600 dark:text-neutral-400 text-sm mb-4">
+                                ¿Estás seguro que deseas eliminar el entregable <strong>"{deleteEntregableConfirm.nombre}"</strong>?
+                              </p>
+                              <p className="text-xs text-red-500 dark:text-red-400 mb-4">
+                                Esta acción no se puede deshacer.
+                              </p>
+                              <div className="flex gap-2">
+                                <Button variant="ghost" onClick={() => setDeleteEntregableConfirm({ show: false, proyectoId: null, entregableId: null, nombre: '' })} className="flex-1">
+                                  Cancelar
+                                </Button>
+                                <Button onClick={deleteEntregable} className="flex-1 bg-red-500 hover:bg-red-600">
+                                  Eliminar
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ==================== PESTAÑA EDP ==================== */}
+                    {dashboardTab === 'edp' && (() => {
+                      const edpData = calcularEDPEntregables(selectedProject);
+                      const porProyecto = agruparPorProyecto(edpData);
+                      const totalGeneral = edpData.reduce((s, e) => s + e.valor, 0);
+                      return (
+                        <div className="space-y-4">
+                          <Card className="p-4">
+                            <div className="flex flex-wrap items-end gap-4">
+                              <Input
+                                label="Mes a facturar"
+                                type="month"
+                                value={selectedMonth}
+                                onChange={e => setSelectedMonth(e.target.value)}
+                              />
+                              <div className="flex gap-2">
+                                <Button onClick={() => exportarXLSX(selectedProject)} variant="secondary">
+                                  <FileDown className="w-4 h-4 mr-2" />
+                                  Exportar XLSX
+                                </Button>
+                                <Button onClick={() => setShowPreview(true)}>
+                                  <Printer className="w-4 h-4 mr-2" />
+                                  Vista PDF
+                                </Button>
+                              </div>
+                            </div>
+                          </Card>
+
+                          <Card className="p-4">
+                            <h2 className="text-neutral-800 dark:text-neutral-100 text-sm font-medium mb-4">
+                              EDP - {new Date(selectedMonth + '-01').toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })}
+                            </h2>
+
+                            {edpData.length === 0 ? (
+                              <div className="text-center py-8 text-neutral-500 dark:text-neutral-400">
+                                <FileSpreadsheet className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                                <p>No hay entregables facturables en este período</p>
+                                <p className="text-xs mt-2">Los entregables aparecen aquí cuando se marcan en Control de Avance</p>
+                              </div>
+                            ) : (
+                              <div className="space-y-4">
+                                {Object.entries(porProyecto).map(([proyectoId, data]) => (
+                                  <div key={proyectoId} className="p-4 bg-neutral-100 dark:bg-neutral-700 rounded-lg">
+                                    <div className="flex items-center justify-between mb-3">
+                                      <div>
+                                        <span className="text-orange-500 font-mono font-bold">{proyectoId}</span>
+                                        <span className="text-neutral-800 dark:text-neutral-100 ml-2">{data.nombre}</span>
+                                      </div>
+                                      <Badge variant="success">
+                                        {data.totalUF.toFixed(2)} HsH
+                                      </Badge>
+                                    </div>
+
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full text-xs">
+                                        <thead>
+                                          <tr className="text-left text-neutral-500 dark:text-neutral-400 border-b border-neutral-200 dark:border-neutral-600">
+                                            <th className="pb-2">Código</th>
+                                            <th className="pb-2">Descripción</th>
+                                            <th className="pb-2 text-center">Tipo</th>
+                                            <th className="pb-2 text-center">Rev</th>
+                                            <th className="pb-2 text-center">Fecha</th>
+                                            <th className="pb-2 text-right">HsH</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {data.entregables.map((e, i) => (
+                                            <tr key={`${e.entregableId}-${e.revision}`} className={`border-b border-neutral-200 dark:border-neutral-600 ${i % 2 === 0 ? '' : 'bg-white/50 dark:bg-neutral-800/30'}`}>
+                                              <td className="py-2 font-mono text-neutral-600 dark:text-neutral-300">{e.codigo}</td>
+                                              <td className="py-2 text-neutral-800 dark:text-neutral-100 max-w-xs truncate">{e.nombre}</td>
+                                              <td className="py-2 text-center">
+                                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${getTipoColor(e.tipo)}`}>
+                                                  {e.tipo}
+                                                </span>
+                                              </td>
+                                              <td className="py-2 text-center">
+                                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                                  e.esHsH ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300' :
+                                                  e.revision === 'A' ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300' :
+                                                  e.revision === 'B' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' :
+                                                  'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300'
+                                                }`}>
+                                                  {e.esHsH ? e.tipo : `REV_${e.revision}`}
+                                                </span>
+                                              </td>
+                                              <td className="py-2 text-center text-neutral-600 dark:text-neutral-300">{e.fecha}</td>
+                                              <td className="py-2 text-right text-green-600 dark:text-green-400 font-medium">{e.valor.toFixed(2)}</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                        <tfoot>
+                                          <tr className="font-medium">
+                                            <td colSpan={5} className="pt-2 text-right text-neutral-600 dark:text-neutral-300">Subtotal {proyectoId}:</td>
+                                            <td className="pt-2 text-right text-green-600 dark:text-green-400">{data.totalUF.toFixed(2)} HsH</td>
+                                          </tr>
+                                        </tfoot>
+                                      </table>
+                                    </div>
+                                  </div>
+                                ))}
+
+                                <div className="p-4 bg-orange-500/20 rounded-lg border border-orange-500/30">
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <span className="text-neutral-800 dark:text-neutral-100 font-medium">TOTAL EDP</span>
+                                      <span className="text-neutral-500 dark:text-neutral-400 text-sm ml-2">
+                                        ({edpData.length} registros)
+                                      </span>
+                                    </div>
+                                    <div className="text-right">
+                                      <p className="text-2xl font-bold text-orange-500">
+                                        {totalGeneral.toFixed(2)} HsH
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div className="p-4 bg-white dark:bg-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 text-center">
+                                    <p className="text-neutral-500 dark:text-neutral-400 text-xs mb-1">HsH Mes en Curso</p>
+                                    <p className="text-xl font-bold text-neutral-800 dark:text-neutral-100">{totalGeneral.toFixed(1)}</p>
+                                  </div>
+                                  <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800 text-center">
+                                    <p className="text-orange-600 dark:text-orange-400 text-xs mb-1">Facturación (HsH)</p>
+                                    <p className="text-xl font-bold text-orange-600">{totalGeneral.toFixed(1)}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </Card>
+
+                          {/* Modal de Vista Previa PDF */}
+                          {showPreview && (
+                            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                              <div className="bg-white dark:bg-neutral-800 rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] overflow-hidden">
+                                <div className="p-4 border-b border-neutral-200 dark:border-neutral-700 flex items-center justify-between no-print">
+                                  <h2 className="text-neutral-800 dark:text-neutral-100 font-medium">Vista Previa EDP</h2>
+                                  <div className="flex gap-2">
+                                    <Button variant="secondary" onClick={() => window.print()}>
+                                      <Printer className="w-4 h-4 mr-2" />
+                                      Imprimir
+                                    </Button>
+                                    <Button variant="ghost" onClick={() => setShowPreview(false)}>
+                                      <X className="w-4 h-4" />
+                                    </Button>
+                                  </div>
+                                </div>
+                                <div className="p-4 overflow-auto max-h-[calc(90vh-80px)] print-content">
+                                  <div className="bg-white text-black">
+                                    <div className="flex items-center justify-between mb-4 pb-3 border-b-2 border-orange-500">
+                                      <div>
+                                        <h1 className="text-xl font-bold text-neutral-800">ESTADO DE PAGO</h1>
+                                        <p className="text-sm text-neutral-600">{new Date(selectedMonth + '-01').toLocaleDateString('es-CL', { month: 'long', year: 'numeric' }).toUpperCase()}</p>
+                                        <p className="text-xs text-orange-600 font-medium mt-1">
+                                          {`${selectedProject} - ${proyectoActual?.nombre || ''}`}
+                                        </p>
+                                      </div>
+                                      <div className="text-right">
+                                        <p className="text-lg font-light tracking-widest">
+                                          <span className="text-neutral-800">M</span>
+                                          <span className="text-orange-500">A</span>
+                                          <span className="text-neutral-800">TRIZ</span>
+                                        </p>
+                                        <p className="text-[7px] text-neutral-400 tracking-wider">ASSETS FOR NON-PROCESS INFRASTRUCTURE</p>
+                                      </div>
+                                    </div>
+
+                                    <table className="w-full text-[8px] border-collapse mb-3">
+                                      <thead>
+                                        <tr className="bg-neutral-800 text-white">
+                                          <th className="border border-neutral-300 px-1.5 py-1 text-center">TIPO</th>
+                                          <th className="border border-neutral-300 px-1.5 py-1 text-left">CÓDIGO</th>
+                                          <th className="border border-neutral-300 px-1.5 py-1 text-left">DESCRIPCIÓN</th>
+                                          <th className="border border-neutral-300 px-1.5 py-1 text-center">REV</th>
+                                          <th className="border border-neutral-300 px-1.5 py-1 text-center">FECHA</th>
+                                          <th className="border border-neutral-300 px-1.5 py-1 text-right">HsH</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {edpData.map((e, i) => (
+                                          <tr key={`${e.entregableId}-${e.revision}`} className={i % 2 === 0 ? 'bg-white' : 'bg-neutral-50'}>
+                                            <td className="border border-neutral-300 px-1.5 py-0.5 text-center">{e.tipo}</td>
+                                            <td className="border border-neutral-300 px-1.5 py-0.5 font-mono">{e.codigo}</td>
+                                            <td className="border border-neutral-300 px-1.5 py-0.5">{e.nombre}</td>
+                                            <td className="border border-neutral-300 px-1.5 py-0.5 text-center">{e.esHsH ? '-' : `REV_${e.revision}`}</td>
+                                            <td className="border border-neutral-300 px-1.5 py-0.5 text-center">{e.fecha}</td>
+                                            <td className="border border-neutral-300 px-1.5 py-0.5 text-right font-medium">{e.valor.toFixed(2)}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                      <tfoot>
+                                        <tr className="bg-orange-100 font-bold">
+                                          <td colSpan={5} className="border border-neutral-300 px-1.5 py-1 text-right">TOTAL HsH:</td>
+                                          <td className="border border-neutral-300 px-1.5 py-1 text-right text-orange-600">{totalGeneral.toFixed(2)}</td>
+                                        </tr>
+                                      </tfoot>
+                                    </table>
+
+                                    <div className="mt-3 p-2 bg-neutral-50 border border-neutral-200 rounded">
+                                      <div className="grid grid-cols-2 gap-2 text-[9px]">
+                                        <div className="text-center p-1.5 bg-white rounded border">
+                                          <p className="text-neutral-500 text-[8px]">HsH Mes en Curso</p>
+                                          <p className="font-bold text-neutral-800 text-xs">{totalGeneral.toFixed(1)}</p>
+                                        </div>
+                                        <div className="text-center p-1.5 bg-orange-50 rounded border border-orange-200">
+                                          <p className="text-orange-600 text-[8px]">Facturación</p>
+                                          <p className="font-bold text-orange-600 text-sm">{totalGeneral.toFixed(1)} HsH</p>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div className="mt-8 pt-4 border-t border-neutral-300">
+                                      <div className="grid grid-cols-2 gap-8">
+                                        <div className="text-center">
+                                          <div className="border-b border-neutral-400 h-12 mb-2"></div>
+                                          <p className="text-[10px] font-bold text-neutral-700">Jefe de Proyecto {selectedProject}</p>
+                                          <p className="text-[9px] text-neutral-600">{proyectoActual?.jefeProyecto || ''}</p>
+                                        </div>
+                                        <div className="text-center">
+                                          <div className="border-b border-neutral-400 h-12 mb-2"></div>
+                                          <p className="text-[10px] font-bold text-neutral-700">Líder de Arquitectura</p>
+                                          <p className="text-[9px] text-neutral-600">Sebastián A. Vizcarra</p>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div className="mt-6 pt-4 border-t border-neutral-200 text-[8px] text-neutral-400 flex justify-between">
+                                      <span>Generado: {new Date().toLocaleString('es-CL')}</span>
+                                      <span>AFOR Intranet v1.0</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                   </>
                 );
