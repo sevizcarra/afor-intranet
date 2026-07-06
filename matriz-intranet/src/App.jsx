@@ -1089,6 +1089,9 @@ export default function MatrizIntranet() {
   // Refs para campos de texto COT: persisten entre remounts sin causar re-render de App al escribir
   const cotCodigoRef = React.useRef('');
   const cotClienteRef = React.useRef('');
+  const cotClienteRutRef = React.useRef('');
+  const cotClienteContactoRef = React.useRef('');
+  const cotClienteEmailRef = React.useRef('');
   const cotProyectoNombreRef = React.useRef('');
   // Estados posibles de una cotización
   const COT_ESTADOS = [
@@ -3164,9 +3167,15 @@ export default function MatrizIntranet() {
     // Estados locales de texto inicializados desde refs (persisten sin causar re-render de App)
     const [cotCodigo, setCotCodigoLocal] = useState(cotCodigoRef.current);
     const [cotCliente, setCotClienteLocal] = useState(cotClienteRef.current);
+    const [cotClienteRut, setCotClienteRutLocal] = useState(cotClienteRutRef.current);
+    const [cotClienteContacto, setCotClienteContactoLocal] = useState(cotClienteContactoRef.current);
+    const [cotClienteEmail, setCotClienteEmailLocal] = useState(cotClienteEmailRef.current);
     const [cotProyectoNombre, setCotProyectoNombreLocal] = useState(cotProyectoNombreRef.current);
     const setCotCodigo = (val) => { setCotCodigoLocal(val); cotCodigoRef.current = val; };
     const setCotCliente = (val) => { setCotClienteLocal(val); cotClienteRef.current = val; };
+    const setCotClienteRut = (val) => { setCotClienteRutLocal(val); cotClienteRutRef.current = val; };
+    const setCotClienteContacto = (val) => { setCotClienteContactoLocal(val); cotClienteContactoRef.current = val; };
+    const setCotClienteEmail = (val) => { setCotClienteEmailLocal(val); cotClienteEmailRef.current = val; };
     const setCotProyectoNombre = (val) => { setCotProyectoNombreLocal(val); cotProyectoNombreRef.current = val; };
 
     // COT-only local constants (PRECIOS_BASE, PORCENTAJES_REV kept for COT calculations)
@@ -3211,6 +3220,9 @@ export default function MatrizIntranet() {
                   onClick={() => {
                     setCotCodigo('');
                     setCotCliente('');
+                    setCotClienteRut('');
+                    setCotClienteContacto('');
+                    setCotClienteEmail('');
                     setCotProyectoNombre('');
                     setCotExcelData(null);
                     setCotExcelFileName('');
@@ -3309,9 +3321,9 @@ export default function MatrizIntranet() {
                                     </select>
                                   </div>
                                 </div>
-                                <div className="flex items-center gap-4 text-sm text-neutral-500 dark:text-neutral-400">
+                                <div className="flex items-center gap-4 text-sm text-neutral-500 dark:text-neutral-400 flex-wrap">
                                   {cot.codigo && <span className="font-mono text-xs text-neutral-600 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-700 px-1.5 py-0.5 rounded">{cot.codigo}</span>}
-                                  <span className="flex items-center gap-1"><Building2 className="w-3.5 h-3.5" /> {cot.cliente || '—'}</span>
+                                  <span className="flex items-center gap-1"><Building2 className="w-3.5 h-3.5" /> {cot.cliente || '—'}{cot.clienteRut ? ` · ${cot.clienteRut}` : ''}</span>
                                   <span className="flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> {items} ítem{items !== 1 ? 's' : ''}</span>
                                   <span className="font-semibold text-orange-600">{total.toFixed(1)} UF</span>
                                 </div>
@@ -3332,6 +3344,9 @@ export default function MatrizIntranet() {
                                   onClick={() => {
                                     setCotCodigo(cot.codigo || '');
                                     setCotCliente(cot.cliente || '');
+                                    setCotClienteRut(cot.clienteRut || '');
+                                    setCotClienteContacto(cot.clienteContacto || '');
+                                    setCotClienteEmail(cot.clienteEmail || '');
                                     setCotProyectoNombre(cot.proyectoNombre || '');
                                     setCotExcelData(cot.excelData || null);
                                     setCotExcelFileName(cot.excelFileName || '');
@@ -3352,6 +3367,9 @@ export default function MatrizIntranet() {
                                   onClick={() => {
                                     setCotCodigo(cot.codigo || '');
                                     setCotCliente(cot.cliente || '');
+                                    setCotClienteRut(cot.clienteRut || '');
+                                    setCotClienteContacto(cot.clienteContacto || '');
+                                    setCotClienteEmail(cot.clienteEmail || '');
                                     setCotProyectoNombre(cot.proyectoNombre || '');
                                     setCotExcelData(cot.excelData || null);
                                     setCotExcelFileName(cot.excelFileName || '');
@@ -3510,6 +3528,46 @@ export default function MatrizIntranet() {
                     value={cotProyectoNombre}
                     onChange={e => setCotProyectoNombre(e.target.value)}
                     placeholder="Ej: Ampliación Planta Concentradora"
+                    className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  />
+                </div>
+              </div>
+
+              {/* Datos adicionales del cliente (opcionales) */}
+              <div className="grid sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-neutral-600 dark:text-neutral-300 font-medium text-xs uppercase tracking-wider mb-1">
+                    RUT Cliente
+                  </label>
+                  <input
+                    type="text"
+                    value={cotClienteRut}
+                    onChange={e => setCotClienteRut(e.target.value)}
+                    placeholder="Ej: 76.638.566-4"
+                    className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-neutral-600 dark:text-neutral-300 font-medium text-xs uppercase tracking-wider mb-1">
+                    Nombre de Contacto
+                  </label>
+                  <input
+                    type="text"
+                    value={cotClienteContacto}
+                    onChange={e => setCotClienteContacto(e.target.value)}
+                    placeholder="Ej: Rodrigo Panozo"
+                    className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-neutral-600 dark:text-neutral-300 font-medium text-xs uppercase tracking-wider mb-1">
+                    Email de Contacto
+                  </label>
+                  <input
+                    type="email"
+                    value={cotClienteEmail}
+                    onChange={e => setCotClienteEmail(e.target.value)}
+                    placeholder="Ej: contacto@empresa.cl"
                     className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
                   />
                 </div>
@@ -3740,6 +3798,9 @@ export default function MatrizIntranet() {
                     const cotData = {
                       codigo: cotCodigo || '',
                       cliente: cotCliente,
+                      clienteRut: cotClienteRut || '',
+                      clienteContacto: cotClienteContacto || '',
+                      clienteEmail: cotClienteEmail || '',
                       proyectoNombre: cotProyectoNombre,
                       excelDataJson: JSON.stringify(cleanExcelData),
                       excelFileName: cotExcelFileName || '',
@@ -3769,6 +3830,9 @@ export default function MatrizIntranet() {
                       setCotMode('lista');
                       setCotCodigo('');
                       setCotCliente('');
+                      setCotClienteRut('');
+                      setCotClienteContacto('');
+                      setCotClienteEmail('');
                       setCotProyectoNombre('');
                       setCotExcelData(null);
                       setCotExcelFileName('');
@@ -3914,6 +3978,12 @@ ${cotHtml}
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: '9px', color: '#7a7a78', textTransform: 'uppercase', letterSpacing: '1.2px', fontWeight: '600', marginBottom: '6px' }}>Cliente</div>
                     <div style={{ fontSize: '20px', fontWeight: '600', color: '#0a0a0a', letterSpacing: '-0.3px', lineHeight: '1.2' }}>{cotCliente || '—'}</div>
+                    {cotClienteRut && (
+                      <div style={{ fontSize: '11px', color: '#7a7a78', marginTop: '4px', fontWeight: '500' }}>RUT {cotClienteRut}</div>
+                    )}
+                    {cotClienteEmail && (
+                      <div style={{ fontSize: '11px', color: '#7a7a78', marginTop: '2px', fontWeight: '400' }}>{cotClienteEmail}</div>
+                    )}
                   </div>
                 </div>
 
