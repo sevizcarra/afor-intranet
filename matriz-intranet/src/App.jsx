@@ -3636,7 +3636,7 @@ export default function MatrizIntranet() {
                                     setCotRevAPercent(cot.revAPercent ?? 70); setCotRevBPercent(cot.revBPercent ?? 20); setCotRev0Percent(cot.rev0Percent ?? 10);
                                     setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0);
                                     setCotViewingId(null);
-                                    setCotMode('nueva');
+                                    setCotMode('crear');
                                     showNotification('success', 'Cotización duplicada — edita y guarda como nueva');
                                   }}
                                   className="p-2 text-neutral-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg transition-colors"
