@@ -255,6 +255,12 @@ const DURACION_POR_TIPO_DEFAULT = {
 // Duración fija para REV_B y REV_0 (en días hábiles)
 const DURACION_REVISION_DEFAULT = 3;
 
+// Determinar etiqueta de la tercera revisión según fase del proyecto
+const getRevFinalLabel = (fase) => {
+  if (fase === 'FEL1' || fase === 'FEL2') return 'REV_P';
+  return 'REV_0'; // FEL3, EXE, o sin definir
+};
+
 const TIPOS_ENTREGABLE = [
   { id: 'DOC', nombre: 'Documento', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' },
   { id: 'PLA', nombre: 'Plano', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300' },
@@ -952,6 +958,7 @@ export default function MatrizIntranet() {
     nombre: '',
     cliente: '',
     jefeProyecto: '',
+    fase: '',
     tarifaVenta: 1.2,
     entregables: [] // Array de { id, codigo, nombre, secuencia, valorRevA, valorRevB, valorRev0 }
   });
@@ -1103,6 +1110,7 @@ export default function MatrizIntranet() {
   const cotClienteContactoRef = React.useRef('');
   const cotClienteEmailRef = React.useRef('');
   const cotProyectoNombreRef = React.useRef('');
+  const cotFaseRef = React.useRef('');
   // Estados posibles de una cotización
   const COT_ESTADOS = [
     { id: 'borrador', label: 'Borrador', color: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300' },
@@ -1625,7 +1633,7 @@ export default function MatrizIntranet() {
                 pendingRev = 'REV_B';
                 deadline = new Date(deadlines.revB);
               } else if (status.comentariosBRecibidos) {
-                pendingRev = 'REV_0';
+                pendingRev = getRevFinalLabel(proyecto.fase);
                 deadline = new Date(deadlines.rev0);
               }
             }
@@ -2140,7 +2148,7 @@ export default function MatrizIntranet() {
                 <Select label="Revisión" value={revision} onChange={e => setRevision(e.target.value)}>
                   <option value="REV_A">REV_A</option>
                   <option value="REV_B">REV_B</option>
-                  <option value="REV_0">REV_0</option>
+                  <option value="REV_0">{getRevFinalLabel(proyectos.find(p => p.id === proyecto)?.fase)}</option>
                 </Select>
               )}
 
@@ -3187,6 +3195,8 @@ export default function MatrizIntranet() {
     const setCotClienteContacto = (val) => { setCotClienteContactoLocal(val); cotClienteContactoRef.current = val; };
     const setCotClienteEmail = (val) => { setCotClienteEmailLocal(val); cotClienteEmailRef.current = val; };
     const setCotProyectoNombre = (val) => { setCotProyectoNombreLocal(val); cotProyectoNombreRef.current = val; };
+    const [cotFase, setCotFaseLocal] = useState(cotFaseRef.current);
+    const setCotFase = (val) => { setCotFaseLocal(val); cotFaseRef.current = val; };
 
     // COT-only local constants (PRECIOS_BASE, PORCENTAJES_REV kept for COT calculations)
 
@@ -3234,6 +3244,7 @@ export default function MatrizIntranet() {
                     setCotClienteContacto('');
                     setCotClienteEmail('');
                     setCotProyectoNombre('');
+                    setCotFase('');
                     setCotExcelData(null);
                     setCotExcelFileName('');
                     setCotFirma(null);
@@ -3358,6 +3369,7 @@ export default function MatrizIntranet() {
                                     setCotClienteContacto(cot.clienteContacto || '');
                                     setCotClienteEmail(cot.clienteEmail || '');
                                     setCotProyectoNombre(cot.proyectoNombre || '');
+                                    setCotFase(cot.fase || '');
                                     setCotExcelData(cot.excelData || null);
                                     setCotExcelFileName(cot.excelFileName || '');
                                     setCotFirma(cot.firmada || false);
@@ -3381,6 +3393,7 @@ export default function MatrizIntranet() {
                                     setCotClienteContacto(cot.clienteContacto || '');
                                     setCotClienteEmail(cot.clienteEmail || '');
                                     setCotProyectoNombre(cot.proyectoNombre || '');
+                                    setCotFase(cot.fase || '');
                                     setCotExcelData(cot.excelData || null);
                                     setCotExcelFileName(cot.excelFileName || '');
                                     setCotFirma(cot.firmada || false);
@@ -3518,6 +3531,20 @@ export default function MatrizIntranet() {
                     placeholder="Ej: Ampliación Planta Concentradora"
                     className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
                   />
+                </div>
+                <div>
+                  <label className="block text-neutral-600 dark:text-neutral-300 font-medium text-xs uppercase tracking-wider mb-1">Fase del Proyecto</label>
+                  <select
+                    value={cotFase}
+                    onChange={e => setCotFase(e.target.value)}
+                    className="w-full bg-white dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 rounded px-3 py-2.5 sm:py-2 text-neutral-800 dark:text-neutral-100 text-base sm:text-sm focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+                  >
+                    <option value="">Seleccionar fase...</option>
+                    <option value="FEL1">FEL 1</option>
+                    <option value="FEL2">FEL 2</option>
+                    <option value="FEL3">FEL 3</option>
+                    <option value="EXE">Ejecución (EXE)</option>
+                  </select>
                 </div>
               </div>
 
@@ -3690,7 +3717,7 @@ export default function MatrizIntranet() {
                   {[
                     { label: 'REV_A', enabled: cotRevAEnabled, setEnabled: setCotRevAEnabled, percent: cotRevAPercent, setPercent: setCotRevAPercent },
                     { label: 'REV_B', enabled: cotRevBEnabled, setEnabled: setCotRevBEnabled, percent: cotRevBPercent, setPercent: setCotRevBPercent },
-                    { label: 'REV_0', enabled: cotRev0Enabled, setEnabled: setCotRev0Enabled, percent: cotRev0Percent, setPercent: setCotRev0Percent },
+                    { label: getRevFinalLabel(cotFase), enabled: cotRev0Enabled, setEnabled: setCotRev0Enabled, percent: cotRev0Percent, setPercent: setCotRev0Percent },
                   ].map(rev => (
                     <div key={rev.label} className={`text-center p-3 rounded-lg border transition-all ${rev.enabled ? 'border-orange-300 dark:border-orange-700 bg-white dark:bg-neutral-800' : 'border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800/50 opacity-50'}`}>
                       <label className="flex items-center justify-center gap-2 cursor-pointer mb-2">
@@ -3709,7 +3736,7 @@ export default function MatrizIntranet() {
                   ))}
                 </div>
                 <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-3 text-center">
-                  Validez: 90 días | Revisiones posteriores mantienen valor REV_0
+                  Validez: 90 días | Revisiones posteriores mantienen valor {getRevFinalLabel(cotFase)}
                 </p>
               </div>
 
@@ -3790,6 +3817,7 @@ export default function MatrizIntranet() {
                       clienteContacto: cotClienteContacto || '',
                       clienteEmail: cotClienteEmail || '',
                       proyectoNombre: cotProyectoNombre,
+                      fase: cotFase || '',
                       excelDataJson: JSON.stringify(cleanExcelData),
                       excelFileName: cotExcelFileName || '',
                       firmada: !!cotFirma,
@@ -3822,6 +3850,7 @@ export default function MatrizIntranet() {
                       setCotClienteContacto('');
                       setCotClienteEmail('');
                       setCotProyectoNombre('');
+                      setCotFase('');
                       setCotExcelData(null);
                       setCotExcelFileName('');
                       setCotFirma(null);
@@ -3995,7 +4024,7 @@ ${cotHtml}
                         <th style={{ background: '#0a0a0a', color: '#fafaf7', padding: '10px 12px', textAlign: 'center', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '600' }}>Tipo</th>
                         {cotRevAEnabled && <th style={{ background: '#0a0a0a', color: '#fafaf7', padding: '10px 12px', textAlign: 'right', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '600' }}>REV_A ({cotRevAPercent}%)</th>}
                         {cotRevBEnabled && <th style={{ background: '#0a0a0a', color: '#fafaf7', padding: '10px 12px', textAlign: 'right', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '600' }}>REV_B ({cotRevBPercent}%)</th>}
-                        {cotRev0Enabled && <th style={{ background: '#0a0a0a', color: '#fafaf7', padding: '10px 12px', textAlign: 'right', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '600' }}>REV_0 ({cotRev0Percent}%)</th>}
+                        {cotRev0Enabled && <th style={{ background: '#0a0a0a', color: '#fafaf7', padding: '10px 12px', textAlign: 'right', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '600' }}>{getRevFinalLabel(cotFase)} ({cotRev0Percent}%)</th>}
                         <th style={{ background: '#0a0a0a', color: '#fafaf7', padding: '10px 12px', textAlign: 'right', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '600' }}>Total UF</th>
                       </tr>
                     </thead>
@@ -4117,10 +4146,10 @@ ${cotHtml}
                     <div style={{ fontSize: '10px', fontWeight: '600', color: '#b8470a', textTransform: 'uppercase', letterSpacing: '2px' }}>Condiciones Comerciales</div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 40px', fontSize: '11px', color: '#3a3a38', lineHeight: '1.5' }}>
-                    <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Forma de Pago</span><br/>{[cotRevAEnabled && `REV_A (${cotRevAPercent}%) al envío`, cotRevBEnabled && `REV_B (${cotRevBPercent}%) al envío`, cotRev0Enabled && `REV_0 (${cotRev0Percent}%) al envío`].filter(Boolean).join(', ')}</div>
+                    <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Forma de Pago</span><br/>{[cotRevAEnabled && `REV_A (${cotRevAPercent}%) al envío`, cotRevBEnabled && `REV_B (${cotRevBPercent}%) al envío`, cotRev0Enabled && `${getRevFinalLabel(cotFase)} (${cotRev0Percent}%) al envío`].filter(Boolean).join(', ')}</div>
                     <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Validez de la Oferta</span><br/>90 días corridos desde la fecha de emisión</div>
                     <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Plazo de Entrega</span><br/>A coordinar según alcance del proyecto</div>
-                    <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Revisiones Adicionales</span><br/>Se valorarán al valor de REV_0</div>
+                    <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Revisiones Adicionales</span><br/>Se valorarán al valor de {getRevFinalLabel(cotFase)}</div>
                   </div>
                 </div>
 
@@ -4877,13 +4906,13 @@ ${cotHtml}
                 </Card>
 
                 <Card className="p-4">
-                  <h3 className="font-medium text-neutral-800 dark:text-neutral-100 mb-1">Duración REV_B y REV_0</h3>
+                  <h3 className="font-medium text-neutral-800 dark:text-neutral-100 mb-1">Duración REV_B y {getRevFinalLabel(proyectos.find(p => p.id === selectedProject)?.fase)}</h3>
                   <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-4">
-                    Días hábiles para completar la revisión después de recibir comentarios. Se aplica igual a REV_B y REV_0.
+                    Días hábiles para completar la revisión después de recibir comentarios. Se aplica igual a REV_B y {getRevFinalLabel(proyectos.find(p => p.id === selectedProject)?.fase)}.
                   </p>
                   <div className="flex items-center gap-3 p-3 bg-neutral-50 dark:bg-neutral-700/50 rounded-lg">
                     <div className="px-2 py-1 rounded text-xs font-mono font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
-                      REV_B / REV_0
+                      REV_B / {getRevFinalLabel(proyectos.find(p => p.id === selectedProject)?.fase)}
                     </div>
                     <div className="flex-1 text-sm text-neutral-600 dark:text-neutral-300">
                       Correcciones post-comentarios
@@ -5742,7 +5771,7 @@ ${cotHtml}
                                 <th className="p-2 text-left font-medium">Descripción</th>
                                 <th className="p-2 text-center font-medium">REV_A</th>
                                 <th className="p-2 text-center font-medium">REV_B</th>
-                                <th className="p-2 text-center font-medium">REV_0</th>
+                                <th className="p-2 text-center font-medium">{getRevFinalLabel(proyectoActual?.fase)}</th>
                                 <th className="p-2 text-center font-medium">Estado</th>
                               </tr>
                             </thead>
@@ -5896,7 +5925,7 @@ ${cotHtml}
                               const leyenda = [
                                 { color: '#fdba74', label: 'REV_A (pendiente)' },
                                 { color: '#93c5fd', label: 'REV_B (pendiente)' },
-                                { color: '#d8b4fe', label: 'REV_0 (pendiente)' },
+                                { color: '#d8b4fe', label: `${getRevFinalLabel(proyectoActual?.fase)} (pendiente)` },
                                 { color: '#fb923c', label: 'En proceso' },
                                 { color: '#22c55e', label: 'Completado' },
                               ].map(l => `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;">
@@ -6048,7 +6077,7 @@ tr { page-break-inside: avoid; }
                                 bars.push({ start: revBWeek, width: Math.max(durRevB, 0.4), color: d.status?.sentRevB ? 'bg-green-500' : 'bg-blue-400', label: d.status?.sentRevB ? 'REV_B ✓' : 'REV_B en proceso' });
                               }
                               if (d.status?.comentariosBRecibidos) {
-                                bars.push({ start: rev0Week, width: Math.max(durRev0, 0.4), color: 'bg-purple-400', label: 'REV_0 en proceso' });
+                                bars.push({ start: rev0Week, width: Math.max(durRev0, 0.4), color: 'bg-purple-400', label: `${getRevFinalLabel(proyectoActual?.fase)} en proceso` });
                               }
                               return bars;
                             };
@@ -6145,7 +6174,7 @@ tr { page-break-inside: avoid; }
                                                   <div className="absolute h-4 bg-blue-300 dark:bg-blue-600 flex items-center justify-center" style={{ left: baseLeft + wA * weekWidth, width: Math.max(wB * weekWidth, 6), top: barTop }} title={`REV_B: ${dB} días`}>
                                                     <span className="text-[7px] text-white font-medium truncate px-0.5">{dB}d</span>
                                                   </div>
-                                                  <div className="absolute h-4 rounded-r-sm bg-purple-300 dark:bg-purple-600 flex items-center justify-center" style={{ left: baseLeft + (wA + wB) * weekWidth, width: Math.max(w0 * weekWidth, 6), top: barTop }} title={`REV_0: ${d0} días`}>
+                                                  <div className="absolute h-4 rounded-r-sm bg-purple-300 dark:bg-purple-600 flex items-center justify-center" style={{ left: baseLeft + (wA + wB) * weekWidth, width: Math.max(w0 * weekWidth, 6), top: barTop }} title={`${getRevFinalLabel(proyectoActual?.fase)}: ${d0} días`}>
                                                     <span className="text-[7px] text-white font-medium truncate px-0.5">{d0}d</span>
                                                   </div>
                                                 </>
@@ -6164,7 +6193,7 @@ tr { page-break-inside: avoid; }
                                     { color: 'bg-neutral-200', label: 'Pendiente' },
                                     { color: 'bg-orange-400', label: 'REV_A' },
                                     { color: 'bg-blue-400', label: 'REV_B' },
-                                    { color: 'bg-purple-400', label: 'REV_0' },
+                                    { color: 'bg-purple-400', label: getRevFinalLabel(proyectoActual?.fase) },
                                     { color: 'bg-green-500', label: 'Completado' },
                                   ].map(l => (
                                     <div key={l.label} className="flex items-center gap-1">
@@ -6223,7 +6252,7 @@ tr { page-break-inside: avoid; }
                                     <th className="pb-2 text-center">Sem</th>
                                     <th className="pb-2 text-right">REV_A (HsH)</th>
                                     <th className="pb-2 text-right">REV_B (HsH)</th>
-                                    <th className="pb-2 text-right">REV_0 (HsH)</th>
+                                    <th className="pb-2 text-right">{getRevFinalLabel(proyectoActual?.fase)} (HsH)</th>
                                     <th className="pb-2 text-center">Estado</th>
                                     <th className="pb-2 text-center">Acciones</th>
                                   </tr>
@@ -6380,7 +6409,7 @@ tr { page-break-inside: avoid; }
                                     </p>
                                   </div>
                                   <div className="text-right">
-                                    <p className="text-neutral-500 dark:text-neutral-400 text-xs">Total REV_0</p>
+                                    <p className="text-neutral-500 dark:text-neutral-400 text-xs">Total {getRevFinalLabel(proyectoActual?.fase)}</p>
                                     <p className="text-purple-600 font-medium">
                                       {ents.reduce((s, e) => s + (e.valorRev0 || 0), 0).toFixed(1)} HsH
                                     </p>
@@ -6457,7 +6486,7 @@ tr { page-break-inside: avoid; }
                                       onChange={e => setNuevoEntregable(prev => ({ ...prev, valorRevB: e.target.value }))}
                                     />
                                     <Input
-                                      label="REV_0 (HsH)"
+                                      label={`${getRevFinalLabel(proyectoActual?.fase)} (HsH)`}
                                       type="number"
                                       step="0.1"
                                       value={nuevoEntregable.valorRev0}
@@ -6834,6 +6863,21 @@ tr { page-break-inside: avoid; }
                 onChange={e => setNewProject(prev => ({ ...prev, jefeProyecto: e.target.value }))}
               />
 
+              <div>
+                <label className="block text-neutral-600 dark:text-neutral-300 font-medium text-xs uppercase tracking-wider mb-1">Fase del Proyecto</label>
+                <select
+                  value={newProject.fase}
+                  onChange={e => setNewProject(prev => ({ ...prev, fase: e.target.value }))}
+                  className="w-full bg-white dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 rounded px-3 py-2.5 sm:py-2 text-neutral-800 dark:text-neutral-100 text-base sm:text-sm focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+                >
+                  <option value="">Seleccionar fase...</option>
+                  <option value="FEL1">FEL 1</option>
+                  <option value="FEL2">FEL 2</option>
+                  <option value="FEL3">FEL 3</option>
+                  <option value="EXE">Ejecución (EXE)</option>
+                </select>
+              </div>
+
               {/* Campo de carga de Excel */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -6865,7 +6909,7 @@ tr { page-break-inside: avoid; }
                       <p className="text-sm text-neutral-500 dark:text-neutral-400">Click para subir Excel</p>
                     )}
                     <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-1">
-                      Columnas: Código, Descripción, Secuencia, REV_A (HsH), REV_B (HsH), REV_0 (HsH)
+                      Columnas: Código, Descripción, Secuencia, REV_A (HsH), REV_B (HsH), {getRevFinalLabel(newProject.fase)} (HsH)
                     </p>
                   </label>
                 </div>
@@ -6905,6 +6949,7 @@ tr { page-break-inside: avoid; }
                         nombre: newProject.nombre,
                         cliente: newProject.cliente,
                         jefeProyecto: newProject.jefeProyecto,
+                        fase: newProject.fase,
                         tarifaVenta: newProject.tarifaVenta,
                         estado: 'Activo',
                         inicio: new Date().toISOString().split('T')[0],
@@ -7230,7 +7275,7 @@ tr { page-break-inside: avoid; }
                         <th className="border border-neutral-600 px-1 py-0.5 text-center" style={{width: '25px'}}>Sec</th>
                         <th className="border border-neutral-600 px-1 py-0.5 text-center" style={{width: '62px'}}>REV_A</th>
                         <th className="border border-neutral-600 px-1 py-0.5 text-center" style={{width: '62px'}}>REV_B</th>
-                        <th className="border border-neutral-600 px-1 py-0.5 text-center" style={{width: '62px'}}>REV_0</th>
+                        <th className="border border-neutral-600 px-1 py-0.5 text-center" style={{width: '62px'}}>{getRevFinalLabel(proyectoImpr?.fase)}</th>
                         <th className="border border-neutral-600 px-1 py-0.5 text-center" style={{width: '50px'}}>Estado</th>
                       </tr>
                     </thead>
