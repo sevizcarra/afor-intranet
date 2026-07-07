@@ -5888,7 +5888,7 @@ ${cotHtml}
                                     <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${tipoColor};margin-right:4px;vertical-align:middle;"></span>
                                     ${d.nombre || d.name || ''}
                                   </td>
-                                  <td style="border:1px solid #e5e5e5;padding:0;position:relative;">
+                                  <td colspan="${weeksP}" style="border:1px solid #e5e5e5;padding:0;position:relative;">
                                     <svg width="${weeksP * wW}" height="${rH}" style="display:block;">
                                       ${barsHtml}
                                     </svg>
