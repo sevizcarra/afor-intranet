@@ -4,9 +4,9 @@
 // IMPORTANTE: Reemplaza estos valores con los de tu proyecto Firebase
 // (ver instrucciones en README.md)
 
-import { initializeApp } from 'firebase/app';
+import { initializeApp, deleteApp } from 'firebase/app';
 import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import { getAuth, createUserWithEmailAndPassword, signOut as signOutSecondary } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
@@ -36,5 +36,21 @@ enableIndexedDbPersistence(db).catch((err) => {
     console.warn('Persistencia offline no soportada en este navegador');
   }
 });
+
+// Crea un usuario en Firebase Auth usando una app secundaria,
+// para NO reemplazar la sesión del admin que está creando al usuario.
+export const createAuthUser = async (email, password) => {
+  const secApp = initializeApp(firebaseConfig, 'secondary-' + Date.now());
+  try {
+    const secAuth = getAuth(secApp);
+    const cred = await createUserWithEmailAndPassword(secAuth, email, password);
+    await signOutSecondary(secAuth);
+    return { uid: cred.user.uid };
+  } catch (error) {
+    return { error: (error && error.code) || String(error) };
+  } finally {
+    try { await deleteApp(secApp); } catch (e) { /* noop */ }
+  }
+};
 
 export default app;

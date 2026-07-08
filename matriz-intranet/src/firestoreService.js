@@ -26,7 +26,31 @@ const COLLECTIONS = {
   CONFIG: 'config',
   TAREAS: 'tareas',
   PRESENCIA: 'presencia',
-  COTIZACIONES: 'cotizaciones'
+  COTIZACIONES: 'cotizaciones',
+  USUARIOS: 'usuarios'
+};
+
+// ============================================
+// PERFILES DE USUARIO (Firebase Auth)
+// ============================================
+export const getUsuarioPerfil = async (uid) => {
+  try {
+    const snap = await getDoc(doc(db, COLLECTIONS.USUARIOS, uid));
+    return snap.exists() ? snap.data() : null;
+  } catch (error) {
+    console.error('Error getting usuario perfil:', error);
+    return null;
+  }
+};
+
+export const saveUsuarioPerfil = async (uid, perfil) => {
+  try {
+    await setDoc(doc(db, COLLECTIONS.USUARIOS, uid), perfil, { merge: true });
+    return true;
+  } catch (error) {
+    console.error('Error saving usuario perfil:', error);
+    return false;
+  }
 };
 
 // ============================================

@@ -6,6 +6,11 @@ import {
   BarChart3, AlertTriangle, Printer, FileDown, UserPlus, Save, LogOut, Loader2,
   Moon, Sun, Snowflake, ClipboardList, MessageSquare, Send, Circle, Wifi, Download, Upload, Database, Shield, Edit3, History, CheckCircle, Copy
 } from 'lucide-react';
+import { auth, createAuthUser } from './firebase';
+import {
+  signInWithEmailAndPassword, onAuthStateChanged, signOut,
+  updatePassword, sendPasswordResetEmail, EmailAuthProvider, reauthenticateWithCredential
+} from 'firebase/auth';
 import {
   subscribeToProyectos,
   subscribeToColaboradores,
@@ -30,6 +35,8 @@ import {
   exportFullBackup,
   restoreFromBackup,
   saveAutoBackup,
+  getUsuarioPerfil,
+  saveUsuarioPerfil,
   saveCotizacion,
   updateCotEstado,
   updateProyectoField,
@@ -48,10 +55,11 @@ import {
 // ============================================
 // SISTEMA DE USUARIOS Y ROLES
 // ============================================
+// Perfiles base (SOLO datos de perfil — la autenticación la maneja Firebase Auth)
 const USUARIOS_INICIAL = [
-  { id: 'admin', nombre: 'Sebastián Vizcarra', email: 'svizcarra@afor.cl', password: 'Sebas1947!', rol: 'admin', profesionalId: 3 },
-  { id: 'user1', nombre: 'Cristóbal Ríos', email: 'cristobal@matriz.cl', password: 'crios123', rol: 'profesional', profesionalId: 1 },
-  { id: 'user2', nombre: 'Dominique Thompson', email: 'dominique@matriz.cl', password: 'dthompson123', rol: 'profesional', profesionalId: 2 },
+  { id: 'admin', nombre: 'Sebastián Vizcarra', email: 'svizcarra@afor.cl', rol: 'admin', profesionalId: 3 },
+  { id: 'user1', nombre: 'Cristóbal Ríos', email: 'cristobal@matriz.cl', rol: 'profesional', profesionalId: 1 },
+  { id: 'user2', nombre: 'Dominique Thompson', email: 'dominique@matriz.cl', rol: 'profesional', profesionalId: 2 },
 ];
 
 // Estilos de impresión
@@ -773,44 +781,13 @@ export default function MatrizIntranet() {
       setTimeout(() => setLoginError(''), 3000);
       return;
     }
-    // Buscar usuario por email
-    const user = usuarios.find(u => u.email === loginEmail);
-    if (user) {
-      // Para admin, verificar contra adminStoredPassword
-      const passwordValid = user.rol === 'admin'
-        ? loginPassword === adminStoredPassword
-        : loginPassword === user.password;
-
-      if (passwordValid) {
-        setCurrentUser(user);
-        setLoginEmail('');
-        setLoginPassword('');
-        setLoginError('');
-        // Actualizar presencia al iniciar sesión
-        await updatePresencia(user.profesionalId, {
-          pagina: 'home',
-          navegador: navigator.userAgent.includes('Mobile') ? 'Móvil' : 'Desktop'
-        });
-        // Auto-backup diario al login de admin
-        if (user.rol === 'admin') {
-          const lastBackup = localStorage.getItem('afor_last_auto_backup');
-          const today = new Date().toISOString().split('T')[0];
-          if (lastBackup !== today) {
-            try {
-              const backup = await exportFullBackup();
-              await saveAutoBackup(backup);
-              localStorage.setItem('afor_last_auto_backup', today);
-              console.log('Auto-backup diario completado');
-            } catch (err) {
-              console.warn('Auto-backup falló:', err);
-            }
-          }
-        }
-      } else {
-        setLoginError('Email o contraseña incorrectos');
-        setTimeout(() => setLoginError(''), 3000);
-      }
-    } else {
+    try {
+      await signInWithEmailAndPassword(auth, loginEmail.trim().toLowerCase(), loginPassword);
+      // El perfil, la presencia y el auto-backup se resuelven en onAuthStateChanged
+      setLoginEmail('');
+      setLoginPassword('');
+      setLoginError('');
+    } catch (error) {
       setLoginError('Email o contraseña incorrectos');
       setTimeout(() => setLoginError(''), 3000);
     }
@@ -821,9 +798,57 @@ export default function MatrizIntranet() {
     if (currentUser) {
       await setOffline(currentUser.profesionalId);
     }
+    try { await signOut(auth); } catch (e) { /* noop */ }
     setCurrentUser(null);
     setCurrentPage('home');
   };
+
+  // ============================================
+  // SESIÓN: Firebase Auth es la fuente de verdad
+  // ============================================
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (fbUser) => {
+      if (!fbUser) {
+        setCurrentUser(null);
+        return;
+      }
+      // Cargar perfil desde Firestore; si no existe, sembrarlo desde los perfiles base
+      let perfil = await getUsuarioPerfil(fbUser.uid);
+      if (!perfil) {
+        const base = USUARIOS_INICIAL.find(u => (u.email || '').toLowerCase() === (fbUser.email || '').toLowerCase());
+        perfil = {
+          email: fbUser.email || '',
+          nombre: (base && base.nombre) || fbUser.email || 'Usuario',
+          rol: (base && base.rol) || 'profesional',
+          profesionalId: base ? base.profesionalId : null
+        };
+        await saveUsuarioPerfil(fbUser.uid, perfil);
+      }
+      const user = { id: fbUser.uid, uid: fbUser.uid, ...perfil };
+      setCurrentUser(user);
+      if (user.profesionalId !== null && user.profesionalId !== undefined) {
+        updatePresencia(user.profesionalId, {
+          pagina: 'home',
+          navegador: navigator.userAgent.includes('Mobile') ? 'Móvil' : 'Desktop'
+        });
+      }
+      // Auto-backup diario al restaurar sesión de admin
+      if (user.rol === 'admin') {
+        const lastBackup = localStorage.getItem('afor_last_auto_backup');
+        const today = hoyLocalStr();
+        if (lastBackup !== today) {
+          try {
+            const backup = await exportFullBackup();
+            await saveAutoBackup(backup);
+            localStorage.setItem('afor_last_auto_backup', today);
+          } catch (err) {
+            console.warn('Auto-backup falló:', err);
+          }
+        }
+      }
+    });
+    return () => unsub();
+  }, []);
 
   // ============================================
   // ESTADOS DE LA APP (con persistencia Firestore)
@@ -1031,7 +1056,6 @@ export default function MatrizIntranet() {
   const [showPassword, setShowPassword] = useState(false);
   const [currentAdminPassword, setCurrentAdminPassword] = useState(''); // Para verificar antes de cambiar
   const [newAdminPassword, setNewAdminPassword] = useState('');
-  const [adminStoredPassword, setAdminStoredPassword] = useState('Sebas1947!'); // Contraseña del admin
   
   // Estados para formularios
   const [showNewProject, setShowNewProject] = useState(false);
@@ -1532,15 +1556,31 @@ export default function MatrizIntranet() {
       iniciales: getIniciales(newProfesional.nombre.trim())
     };
 
-    // Crear usuario para login
+    // Crear usuario de acceso en Firebase Auth (app secundaria: no cierra la sesión del admin)
+    const resAuth = await createAuthUser(newProfesional.email.trim().toLowerCase(), newProfesional.password.trim());
+    if (resAuth.error) {
+      const msg = resAuth.error === 'auth/email-already-in-use'
+        ? 'Este email ya está registrado en el sistema de acceso'
+        : resAuth.error === 'auth/weak-password'
+          ? 'La contraseña debe tener al menos 6 caracteres'
+          : 'No se pudo crear el usuario de acceso';
+      showNotification('error', msg);
+      return;
+    }
     const nuevoUsuario = {
-      id: `user${newId}`,
+      id: resAuth.uid,
       nombre: newProfesional.nombre.trim(),
-      email: newProfesional.email.trim(),
-      password: newProfesional.password.trim(),
+      email: newProfesional.email.trim().toLowerCase(),
       rol: 'profesional',
       profesionalId: newId
     };
+    // Perfil persistente en Firestore (el login lo lee al iniciar sesión)
+    await saveUsuarioPerfil(resAuth.uid, {
+      nombre: nuevoUsuario.nombre,
+      email: nuevoUsuario.email,
+      rol: 'profesional',
+      profesionalId: newId
+    });
 
     // Guardar profesional en Firestore
     await saveColaborador(nuevoProfesional);
@@ -1588,12 +1628,9 @@ export default function MatrizIntranet() {
         iniciales: getIniciales(profesionalToEdit.nombre)
       };
 
-      // Si se proporcionó una nueva contraseña, actualizarla
-      if (profesionalToEdit.newPassword && profesionalToEdit.newPassword.trim() !== '') {
-        profesionalActualizado.password = profesionalToEdit.newPassword;
-      }
-      // Limpiar el campo temporal newPassword antes de guardar
+      // Las contraseñas ahora las gestiona Firebase Auth (botón "Restablecer Contraseña")
       delete profesionalActualizado.newPassword;
+      delete profesionalActualizado.password; // limpiar contraseñas antiguas en texto plano
 
       // Guardar en Firestore
       await saveColaborador(profesionalActualizado);
@@ -5373,19 +5410,22 @@ ${cotHtml}
                       />
                     </div>
                     <Button
-                      onClick={() => {
-                        if (currentAdminPassword !== adminStoredPassword) {
-                          showNotification('error', 'La contraseña actual es incorrecta');
+                      onClick={async () => {
+                        if (newAdminPassword.trim().length < 8) {
+                          showNotification('error', 'La nueva contraseña debe tener al menos 8 caracteres');
                           return;
                         }
-                        if (newAdminPassword.trim().length < 4) {
-                          showNotification('error', 'La nueva contraseña debe tener al menos 4 caracteres');
-                          return;
+                        try {
+                          const cred = EmailAuthProvider.credential(currentUser.email, currentAdminPassword);
+                          await reauthenticateWithCredential(auth.currentUser, cred);
+                          await updatePassword(auth.currentUser, newAdminPassword.trim());
+                          showNotification('success', 'Contraseña actualizada correctamente');
+                          setCurrentAdminPassword('');
+                          setNewAdminPassword('');
+                        } catch (error) {
+                          const esCredencial = error && (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential');
+                          showNotification('error', esCredencial ? 'La contraseña actual es incorrecta' : 'No se pudo actualizar la contraseña');
                         }
-                        setAdminStoredPassword(newAdminPassword.trim());
-                        showNotification('success', 'Contraseña de admin actualizada correctamente');
-                        setCurrentAdminPassword('');
-                        setNewAdminPassword('');
                       }}
                       disabled={!currentAdminPassword.trim() || !newAdminPassword.trim()}
                     >
@@ -5593,15 +5633,29 @@ ${cotHtml}
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-200 mb-1">Nueva Contraseña (opcional)</label>
-                      <input
-                        type="password"
-                        placeholder="Dejar vacío para mantener actual"
-                        value={profesionalToEdit.newPassword || ''}
-                        onChange={e => setProfesionalToEdit(prev => ({ ...prev, newPassword: e.target.value }))}
-                        className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                      />
-                      <p className="text-xs text-neutral-500 mt-1">Solo el admin puede establecer contraseñas</p>
+                      <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-200 mb-1">Restablecer Contraseña</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="email"
+                          placeholder="Email del profesional"
+                          value={profesionalToEdit.resetEmail ?? (usuarios.find(u => u.profesionalId === profesionalToEdit.id)?.email || '')}
+                          onChange={e => setProfesionalToEdit(prev => ({ ...prev, resetEmail: e.target.value }))}
+                          className="flex-1 border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        />
+                        <Button variant="secondary" onClick={async () => {
+                          const email = (profesionalToEdit.resetEmail ?? (usuarios.find(u => u.profesionalId === profesionalToEdit.id)?.email || '')).trim();
+                          if (!email) { showNotification('error', 'Ingresa el email del profesional'); return; }
+                          try {
+                            await sendPasswordResetEmail(auth, email);
+                            showNotification('success', `Correo de restablecimiento enviado a ${email}`);
+                          } catch (error) {
+                            showNotification('error', 'No se pudo enviar el correo de restablecimiento');
+                          }
+                        }}>
+                          Enviar
+                        </Button>
+                      </div>
+                      <p className="text-xs text-neutral-500 mt-1">El profesional recibirá un correo para definir su nueva contraseña</p>
                     </div>
                   </div>
                   
