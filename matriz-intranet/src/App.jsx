@@ -1337,14 +1337,14 @@ export default function MatrizIntranet() {
         setProyectos(prev => prev.filter(p => p.id !== projectToDelete.id));
 
         // También eliminar horas registradas de ese proyecto de Firestore
-        const horasDelProyecto = horasRegistradas.filter(h => h.proyecto === projectToDelete.id);
+        const horasDelProyecto = horasRegistradas.filter(h => h.proyectoId === projectToDelete.id);
         for (const hora of horasDelProyecto) {
           if (hora._docId) {
             await deleteHoraFS(hora._docId);
           }
         }
         // Actualizar horas localmente
-        setHorasRegistradas(prev => prev.filter(h => h.proyecto !== projectToDelete.id));
+        setHorasRegistradas(prev => prev.filter(h => h.proyectoId !== projectToDelete.id));
 
         // Si el proyecto eliminado era el seleccionado, deseleccionar
         if (selectedProject === projectToDelete.id) {
@@ -1399,9 +1399,9 @@ export default function MatrizIntranet() {
 
       // Si cambió el id, actualizar referencias en horas registradas
       if (oldId !== newId) {
-        const horasActualizadas = horasRegistradas.filter(h => h.proyecto === oldId);
+        const horasActualizadas = horasRegistradas.filter(h => h.proyectoId === oldId);
         for (const hora of horasActualizadas) {
-          const horaActualizada = { ...hora, proyecto: newId };
+          const horaActualizada = { ...hora, proyectoId: newId };
           await saveHora(horaActualizada);
         }
 
@@ -1678,13 +1678,13 @@ export default function MatrizIntranet() {
             if (!status.sentRev0) {
               if (!status.sentRevA) {
                 pendingRev = 'REV_A';
-                deadline = new Date(deadlines.revA);
+                deadline = new Date(deadlines.deadlineRevA);
               } else if (!status.sentRevB && status.comentariosARecibidos) {
                 pendingRev = 'REV_B';
-                deadline = new Date(deadlines.revB);
+                deadline = new Date(deadlines.deadlineRevB);
               } else if (status.comentariosBRecibidos) {
                 pendingRev = getRevFinalLabel(proyecto.fase);
-                deadline = new Date(deadlines.rev0);
+                deadline = new Date(deadlines.deadlineRev0);
               }
             }
 
