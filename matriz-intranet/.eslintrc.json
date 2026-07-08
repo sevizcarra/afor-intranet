@@ -1,0 +1,31 @@
+{
+  "root": true,
+  "parser": "@babel/eslint-parser",
+  "parserOptions": {
+    "requireConfigFile": false,
+    "ecmaVersion": 2022,
+    "sourceType": "module",
+    "ecmaFeatures": {"jsx": true},
+    "babelOptions": {"presets": ["@babel/preset-react"]}
+  },
+  "env": {"browser": true, "es2022": true},
+  "plugins": ["react", "react-hooks"],
+  "settings": {"react": {"version": "18"}},
+  "rules": {
+    "no-undef": "error",
+    "no-unused-vars": "warn",
+    "no-dupe-keys": "error",
+    "no-dupe-args": "error",
+    "no-unreachable": "error",
+    "no-constant-condition": "warn",
+    "no-self-compare": "error",
+    "no-compare-neg-zero": "error",
+    "eqeqeq": "off",
+    "react/jsx-key": "warn",
+    "react/jsx-no-duplicate-props": "error",
+    "react/jsx-no-undef": "error",
+    "react/no-direct-mutation-state": "error",
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "warn"
+  }
+}

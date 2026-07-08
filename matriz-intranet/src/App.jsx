@@ -6971,7 +6971,27 @@ tr { page-break-inside: avoid; }
                                 <div className="p-4 border-b border-neutral-200 dark:border-neutral-700 flex items-center justify-between no-print">
                                   <h2 className="text-neutral-800 dark:text-neutral-100 font-medium">Vista Previa EDP</h2>
                                   <div className="flex gap-2">
-                                    <Button variant="secondary" onClick={() => { if (edpCond && selectedProject) updateProyectoField(selectedProject, { ['edpCond.' + selectedMonth]: edpCond }); window.print(); }}>
+                                    <Button variant="secondary" onClick={() => {
+                                      if (edpCond && selectedProject) updateProyectoField(selectedProject, { ['edpCond.' + selectedMonth]: edpCond });
+                                      const area = document.getElementById('edp-print-area');
+                                      if (!area) return;
+                                      const tmp = document.createElement('div');
+                                      tmp.innerHTML = area.innerHTML;
+                                      tmp.querySelectorAll('.no-print').forEach(e => e.remove());
+                                      const cssLinks = Array.from(document.styleSheets).map(sh => sh.href).filter(Boolean).map(h => `<link rel="stylesheet" href="${h}">`).join('');
+                                      const mesTitulo = new Date(selectedMonth + '-01T12:00:00').toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
+                                      const pw = window.open('', '_blank');
+                                      if (!pw) { showNotification('error', 'Habilita las ventanas emergentes para poder imprimir'); return; }
+                                      pw.document.write(`<html><head><title>EDP ${selectedProject} — ${mesTitulo}</title><base href="${window.location.origin}/">${cssLinks}<style>
+@page { size: letter portrait; margin: 10mm 12mm; }
+* { box-sizing: border-box; }
+body { margin: 0; background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+table { page-break-inside: auto; }
+tr { page-break-inside: avoid; }
+</style></head><body class="bg-white text-black"><div class="bg-white text-black">${tmp.innerHTML}</div></body></html>`);
+                                      pw.document.close();
+                                      setTimeout(() => pw.print(), 700);
+                                    }}>
                                       <Printer className="w-4 h-4 mr-2" />
                                       Imprimir
                                     </Button>
@@ -7015,8 +7035,8 @@ tr { page-break-inside: avoid; }
                                     <p className="text-[10px] text-neutral-400 dark:text-neutral-500">Estas opciones se guardan para este proyecto y mes al imprimir o cerrar la vista previa.</p>
                                   </div>
                                 )}
-                                <div className="p-4 overflow-auto max-h-[calc(90vh-80px)] print-content">
-                                  <div className="bg-white text-black">
+                                <div className="p-4 overflow-auto max-h-[calc(90vh-80px)]">
+                                  <div id="edp-print-area" className="bg-white text-black">
                                     <div className="flex items-center justify-between mb-4 pb-3 border-b-2 border-orange-500">
                                       <div>
                                         <h1 className="text-xl font-bold text-neutral-800">ESTADO DE PAGO</h1>
