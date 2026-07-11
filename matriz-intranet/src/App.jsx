@@ -669,6 +669,19 @@ const parseLocalDate = (value) => {
   return new Date(value);
 };
 
+// Hook: da identidad ESTABLE a un componente definido dentro de otro componente.
+// Sin esto, cada re-render del padre crea un tipo nuevo y React REMONTA la página
+// (se pierde foco, se cierran dropdowns nativos, se resetea estado local).
+// La implementación se refresca en cada render (closures al día), pero el tipo no cambia.
+const useStableComponent = (impl) => {
+  const ref = React.useRef(impl);
+  ref.current = impl;
+  return React.useMemo(() => {
+    const Stable = (props) => ref.current(props);
+    return Stable;
+  }, []);
+};
+
 // Setter que espeja el valor en un ref del padre: si el componente de página
 // se remonta (p.ej. por el heartbeat de presencia), el formulario no pierde lo escrito.
 const mkRefSetter = (ref, key, setLocal) => (v) => {
@@ -4796,6 +4809,14 @@ ${cotHtml}
 
   // Modal Nuevo Proyecto se renderiza inline (ver abajo)
 
+  // Identidad estable de las páginas: evita remontajes en cada re-render global
+  // (p.ej. cuando llegan latidos de presencia, que cerraban los dropdowns abiertos)
+  const HomePageStable = useStableComponent(HomePage);
+  const ProyectosPageStable = useStableComponent(ProyectosPage);
+  const HorasPageStable = useStableComponent(HorasPage);
+  const PerfilPageStable = useStableComponent(PerfilPage);
+  const FacturacionPageStable = useStableComponent(FacturacionPage);
+
   // ============================================
   // PANTALLA DE CARGA (mientras se conecta a Firestore)
   // ============================================
@@ -5043,11 +5064,11 @@ ${cotHtml}
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
-        {currentPage === 'home' && <HomePage />}
-        {currentPage === 'proyectos' && <ProyectosPage />}
-        {currentPage === 'horas' && <HorasPage />}
-        {currentPage === 'perfil' && <PerfilPage />}
-        {currentPage === 'facturacion' && <FacturacionPage />}
+        {currentPage === 'home' && <HomePageStable />}
+        {currentPage === 'proyectos' && <ProyectosPageStable />}
+        {currentPage === 'horas' && <HorasPageStable />}
+        {currentPage === 'perfil' && <PerfilPageStable />}
+        {currentPage === 'facturacion' && <FacturacionPageStable />}
         {currentPage === 'config' && (
           <div className="p-4 sm:p-6 max-w-4xl mx-auto">
             <div className="flex items-center gap-3 mb-6">
