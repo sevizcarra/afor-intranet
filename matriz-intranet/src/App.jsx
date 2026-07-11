@@ -2594,6 +2594,65 @@ export default function MatrizIntranet() {
       showNotification('success', 'Horas registradas correctamente');
     };
     
+    // Informe interno: HsH del mes por profesional, a tarifa de COSTO (solo admin)
+    const imprimirHsHCosto = () => {
+      const delMes = horasRegistradas.filter(h => {
+        const mh = h.mesRegistro || (() => {
+          const f = parseLocalDate(h.fecha);
+          return `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}`;
+        })();
+        return mh === mesHoras;
+      });
+      if (delMes.length === 0) { showNotification('error', 'No hay horas registradas en este mes'); return; }
+      const porProf = {};
+      delMes.forEach(h => {
+        const key = String(h.profesionalId);
+        (porProf[key] = porProf[key] || []).push(h);
+      });
+      const nombreMes = parseLocalDate(mesHoras).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
+      let cuerpo = '';
+      let totalGeneralHrs = 0, totalGeneralCosto = 0;
+      Object.entries(porProf).forEach(([pid, lista]) => {
+        const col = profesionales.find(c => String(c.id) === pid);
+        const tarifaCosto = (col && parseFloat(col.tarifaInterna)) || 0;
+        let subHrs = 0, subCosto = 0;
+        const filas = lista.map(h => {
+          const hrs = parseFloat(h.horas) || 0;
+          const costo = hrs * tarifaCosto;
+          subHrs += hrs; subCosto += costo;
+          return `<tr><td>${h.proyectoId || '-'}</td><td style="text-align:center">${h.tipo || '-'}</td><td>${h.entregable || '-'}</td><td style="text-align:center">${h.semana ? 'S' + h.semana : '-'}</td><td style="text-align:right">${hrs.toFixed(1)}</td><td style="text-align:right">${costo.toFixed(2)}</td></tr>`;
+        }).join('');
+        totalGeneralHrs += subHrs; totalGeneralCosto += subCosto;
+        cuerpo += `<h3>${col ? col.nombre : 'Profesional ' + pid}${col && col.cargo ? ' · ' + col.cargo : ''} <span class="tarifa">(tarifa costo: ${tarifaCosto.toFixed(2)} UF/h)</span></h3>` +
+          `<table><thead><tr><th>Proyecto</th><th>Tipo</th><th>Detalle</th><th>Sem</th><th style="text-align:right">Horas</th><th style="text-align:right">Costo (UF)</th></tr></thead>` +
+          `<tbody>${filas}</tbody>` +
+          `<tfoot><tr><td colspan="4">Subtotal ${col ? col.nombre : ''}</td><td style="text-align:right">${subHrs.toFixed(1)}</td><td style="text-align:right">${subCosto.toFixed(2)}</td></tr></tfoot></table>`;
+      });
+      const pw = window.open('', '_blank');
+      if (!pw) { showNotification('error', 'Habilita las ventanas emergentes para poder imprimir'); return; }
+      pw.document.write(`<html><head><title>HsH al costo — ${nombreMes}</title><style>
+@page { size: letter portrait; margin: 14mm; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; color: #171717; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #f97316; padding-bottom: 8px; margin-bottom: 14px; }
+h1 { font-size: 17px; margin: 0; } .sub { color: #666; font-size: 10px; margin: 2px 0 0; }
+h3 { font-size: 12px; margin: 16px 0 4px; } .tarifa { color: #888; font-weight: normal; font-size: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 9px; }
+th { background: #262626; color: white; padding: 3px 6px; text-align: left; }
+td { border: 1px solid #d4d4d4; padding: 3px 6px; }
+tfoot td { font-weight: bold; background: #f5f5f5; text-align: right; }
+tr { page-break-inside: avoid; }
+.total { margin-top: 16px; padding: 8px 12px; background: #ffedd5; border: 1px solid #fdba74; border-radius: 6px; display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; }
+.nota { color: #999; font-size: 8px; margin-top: 18px; border-top: 1px solid #e5e5e5; padding-top: 6px; display: flex; justify-content: space-between; }
+</style></head><body>
+<div class="header"><div><h1>INFORME INTERNO — HsH AL COSTO</h1><p class="sub">${nombreMes.toUpperCase()} · VALORES DE PAGO POR PROFESIONAL · USO INTERNO</p></div><img src="${window.location.origin}/logo-afor.png" style="height:34px"/></div>
+${cuerpo}
+<div class="total"><span>TOTAL GENERAL (${totalGeneralHrs.toFixed(1)} horas)</span><span>${totalGeneralCosto.toFixed(2)} UF</span></div>
+<div class="nota"><span>Generado: ${new Date().toLocaleString('es-CL')}</span><span>AFOR Intranet</span></div>
+</body></html>`);
+      pw.document.close();
+      setTimeout(() => pw.print(), 500);
+    };
+
     const horasDelMes = horasRegistradas.filter(h => {
       const fecha = new Date(h.fecha);
       const [yearSel, monthSel] = mesHoras.split('-').map(Number);
@@ -2620,7 +2679,7 @@ export default function MatrizIntranet() {
               <ChevronLeft className="w-4 h-4 text-neutral-600 dark:text-neutral-300" />
             </button>
             <span className="text-sm font-medium text-neutral-700 dark:text-neutral-200 min-w-[100px] text-center">
-              {new Date(mesHoras + '-01').toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })}
+              {parseLocalDate(mesHoras).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })}
             </span>
             <button
               onClick={() => {
@@ -2632,6 +2691,12 @@ export default function MatrizIntranet() {
             >
               <ChevronRight className="w-4 h-4 text-neutral-600 dark:text-neutral-300" />
             </button>
+            {isAdmin && (
+              <Button variant="secondary" onClick={imprimirHsHCosto}>
+                <Printer className="w-4 h-4 mr-2" />
+                HsH al costo
+              </Button>
+            )}
           </div>
         </div>
 
@@ -3562,16 +3627,22 @@ export default function MatrizIntranet() {
       });
     });
 
+    // HsH facturables (REU/VIS) de TODOS los profesionales, valorizadas a tarifa de VENTA
     horasRegistradas.forEach(hora => {
       if (hora.tipo !== 'VIS' && hora.tipo !== 'REU') return;
-      const esDeSebastian = hora.profesionalId === 3 || hora.profesionalId === 'admin';
-      if (!esDeSebastian) return;
-      const fechaHora = parseLocalDate(hora.fecha);
-      if (fechaHora.getMonth() !== month - 1 || fechaHora.getFullYear() !== year) return;
+      const mesHora = hora.mesRegistro || (() => {
+        const f = parseLocalDate(hora.fecha);
+        return `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}`;
+      })();
+      if (mesHora !== `${year}-${String(month).padStart(2, '0')}`) return;
       if (filterProyecto !== 'all' && hora.proyectoId !== filterProyecto) return;
 
       const proyecto = proyectos.find(p => p.id === hora.proyectoId);
       const proyectoNombre = proyecto ? proyecto.nombre : hora.proyectoId;
+      const colHora = profesionales.find(c => String(c.id) === String(hora.profesionalId));
+      const tarifaRol = tarifas.find(t => t.id === ((colHora && colHora.rolTarifa) || 'proyectista'));
+      const hrs = parseFloat(hora.horas) || 0;
+      const valorVenta = hrs * ((tarifaRol && tarifaRol.tarifaVenta) || 0);
 
       const entregableId = `hsh_${hora.id}`;
       const revision = '-';
@@ -3581,11 +3652,11 @@ export default function MatrizIntranet() {
         proyectoNombre: proyectoNombre,
         entregableId: entregableId,
         codigo: '-',
-        nombre: hora.entregable || (hora.tipo === 'VIS' ? 'Visita' : 'Reunión'),
+        nombre: `${hora.entregable || (hora.tipo === 'VIS' ? 'Visita' : 'Reunión')} · ${hrs.toFixed(1)} h${colHora ? ' (' + (colHora.iniciales || colHora.nombre) + ')' : ''}`,
         tipo: hora.tipo,
         revision: revision,
         fecha: hora.fecha.split('T')[0],
-        valor: hora.horas,
+        valor: valorVenta,
         observacion: edpObservaciones[obsKey] || '',
         esHsH: true
       });
