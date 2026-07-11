@@ -1684,7 +1684,6 @@ export default function MatrizIntranet() {
     { id: 'facturacion', label: 'COTs', icon: FileSpreadsheet, adminOnly: true },
     { id: 'proyectos', label: 'Proyectos', icon: FolderKanban, adminOnly: false },
     { id: 'horas', label: 'Carga HsH', icon: Clock, adminOnly: false },
-    { id: 'tareas', label: 'Tareas', icon: ClipboardList, adminOnly: false },
     { id: 'perfil', label: 'Mi Perfil', icon: User, adminOnly: false },
     { id: 'config', label: 'Config', icon: Settings, adminOnly: true },
   ];
@@ -2122,88 +2121,6 @@ export default function MatrizIntranet() {
         );
       })()}
 
-      {/* Mis Tareas Pendientes */}
-      {(() => {
-        const misTareasPendientes = tareas.filter(t =>
-          t.asignadoA === currentUser?.profesionalId &&
-          t.estado !== 'completada'
-        ).sort((a, b) => {
-          // Primero por prioridad (alta > media > baja)
-          const prioridadOrder = { alta: 0, media: 1, baja: 2 };
-          return prioridadOrder[a.prioridad] - prioridadOrder[b.prioridad];
-        });
-
-        if (misTareasPendientes.length === 0) return null;
-
-        const getPrioridadColor = (prioridad) => {
-          switch (prioridad) {
-            case 'alta': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
-            case 'media': return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400';
-            case 'baja': return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
-            default: return 'bg-neutral-100 text-neutral-700';
-          }
-        };
-
-        return (
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <ClipboardList className="w-4 h-4 text-purple-500" />
-                <h2 className="text-neutral-800 dark:text-neutral-100 text-sm font-medium">Mis Tareas Pendientes</h2>
-                <span className="bg-purple-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{misTareasPendientes.length}</span>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => setCurrentPage('tareas')}>
-                Ver todas <ChevronRight className="w-4 h-4 ml-1" />
-              </Button>
-            </div>
-            <Card className="divide-y divide-neutral-200 dark:divide-neutral-700">
-              {misTareasPendientes.slice(0, 4).map(tarea => {
-                const proyecto = proyectos.find(p => p.id === tarea.proyectoId);
-                return (
-                  <div
-                    key={tarea._docId}
-                    className="p-3 flex items-center justify-between cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
-                    onClick={() => setCurrentPage('tareas')}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${getPrioridadColor(tarea.prioridad)}`}>
-                          {tarea.prioridad}
-                        </span>
-                        {proyecto && (
-                          <span className="text-orange-500 font-mono text-xs">{proyecto.id}</span>
-                        )}
-                      </div>
-                      <p className="text-neutral-800 dark:text-neutral-100 text-sm truncate mt-1">{tarea.titulo}</p>
-                      {tarea.entregableId && (
-                        <p className="text-neutral-500 dark:text-neutral-400 text-xs">{tarea.entregableId}</p>
-                      )}
-                    </div>
-                    <div className="text-right ml-3">
-                      {tarea.fechaLimite && (
-                        <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                          {new Date(tarea.fechaLimite).toLocaleDateString('es-CL')}
-                        </p>
-                      )}
-                      {(tarea.comentarios?.length || 0) > 0 && (
-                        <div className="flex items-center gap-1 text-xs text-neutral-400 mt-1 justify-end">
-                          <MessageSquare className="w-3 h-3" />
-                          {tarea.comentarios.length}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-              {misTareasPendientes.length > 4 && (
-                <div className="p-2 text-center">
-                  <span className="text-neutral-500 dark:text-neutral-400 text-xs">+{misTareasPendientes.length - 4} tareas más</span>
-                </div>
-              )}
-            </Card>
-          </div>
-        );
-      })()}
 
       {/* Accesos Rápidos */}
       <div>
@@ -5129,7 +5046,6 @@ ${cotHtml}
         {currentPage === 'home' && <HomePage />}
         {currentPage === 'proyectos' && <ProyectosPage />}
         {currentPage === 'horas' && <HorasPage />}
-        {currentPage === 'tareas' && <TareasPage />}
         {currentPage === 'perfil' && <PerfilPage />}
         {currentPage === 'facturacion' && <FacturacionPage />}
         {currentPage === 'config' && (
