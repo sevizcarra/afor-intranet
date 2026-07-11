@@ -2387,14 +2387,22 @@ export default function MatrizIntranet() {
       let tarifasCot = tarifas, recetasCot = recetas;
       try { if (cot.tarifasSnapshot) tarifasCot = typeof cot.tarifasSnapshot === 'string' ? JSON.parse(cot.tarifasSnapshot) : cot.tarifasSnapshot; } catch (e) { /* usar actuales */ }
       try { if (cot.recetasSnapshot) recetasCot = typeof cot.recetasSnapshot === 'string' ? JSON.parse(cot.recetasSnapshot) : cot.recetasSnapshot; } catch (e) { /* usar actuales */ }
-      let costo = 0;
+      const rA = cot.revAEnabled !== false; const rB = cot.revBEnabled !== false; const r0 = cot.rev0Enabled !== false;
+      const pA = cot.revAPercent ?? 70; const pB = cot.revBPercent ?? 20; const p0 = cot.rev0Percent ?? 10;
+      const revFactor = ((rA ? pA : 0) + (rB ? pB : 0) + (r0 ? p0 : 0)) / 100;
+      let costo = 0, venta = 0;
       cot.excelData.slice(1).filter(r => r[0] && r[3]).forEach(r => {
         const tipo = (r[1] || 'PLA GEN').toUpperCase();
         const cant = parseInt(r[4]) || 1;
+        const esVisita = tipo.includes('VIS');
+        const esCobroUnico = tipo.includes('REU INT') || tipo.includes('REU CTTAL');
         const receta = matchReceta(tipo, recetasCot);
         if (receta) costo += calcCostoInterno(receta, tarifasCot) * cant;
+        const precioUnit = esCobroUnico ? 1 : (receta ? calcPrecioVenta(receta, tarifasCot) : 20);
+        venta += precioUnit * cant * ((esCobroUnico || esVisita) ? 1 : revFactor);
       });
-      return { costo, cotCodigo: cot.codigo };
+      venta = venta * (cot.simplificado ? 0.8 : 1) * (1 - ((cot.descuento || 0) / 100));
+      return { costo, venta, cotCodigo: cot.codigo };
     };
 
     // Desglose de costo real por profesional
@@ -2658,20 +2666,36 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                     return (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="p-3 bg-neutral-50 dark:bg-neutral-800/50 rounded-lg">
-                          <p className="text-xs text-neutral-500 dark:text-neutral-400 font-medium mb-2">Costo interno: estimado en COT vs real{est ? ` (ref. ${est.cotCodigo})` : ''}</p>
+                          <p className="text-xs text-neutral-500 dark:text-neutral-400 font-medium mb-2">Análisis de la COT{est ? ` (ref. ${est.cotCodigo})` : ''}</p>
                           {est ? (
                             <>
-                              <div className="flex justify-between text-sm mb-1">
-                                <span className="text-neutral-600 dark:text-neutral-300">Costo estimado: <b>{est.costo.toFixed(1)} UF</b></span>
-                                <span className={pctConsumo > 100 ? 'text-red-600 font-bold' : 'text-neutral-600 dark:text-neutral-300'}>Costo real: <b>{fin.costo.toFixed(1)} UF</b> ({pctConsumo.toFixed(0)}%)</span>
+                              <div className="space-y-1 text-sm mb-2">
+                                <div className="flex justify-between">
+                                  <span className="text-neutral-600 dark:text-neutral-300">Cotización (venta neta)</span>
+                                  <b className="text-neutral-800 dark:text-neutral-100">{est.venta.toFixed(1)} UF</b>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-neutral-600 dark:text-neutral-300">Costo máximo estimado</span>
+                                  <b className="text-neutral-800 dark:text-neutral-100">{est.costo.toFixed(1)} UF</b>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-neutral-600 dark:text-neutral-300">Costo real a la fecha</span>
+                                  <b className={pctConsumo > 100 ? 'text-red-600' : 'text-neutral-800 dark:text-neutral-100'}>{fin.costo.toFixed(1)} UF ({pctConsumo.toFixed(0)}%)</b>
+                                </div>
                               </div>
                               <div className="w-full h-2.5 bg-neutral-200 dark:bg-neutral-700 rounded-full overflow-hidden">
                                 <div className={`h-full rounded-full ${colorConsumo}`} style={{ width: `${Math.min(100, pctConsumo)}%` }} />
                               </div>
-                              {pctConsumo > 100 && <p className="text-[11px] text-red-600 mt-1">⚠ El equipo ha consumido {(fin.costo - est.costo).toFixed(1)} UF más de lo que la COT estimó como costo de producción</p>}
+                              <div className="flex justify-between text-[11px] mt-1.5">
+                                <span className="text-neutral-500 dark:text-neutral-400">Margen previsto: {(est.venta - est.costo).toFixed(1)} UF ({est.venta > 0 ? (((est.venta - est.costo) / est.venta) * 100).toFixed(0) : 0}%)</span>
+                                <span className={est.venta - fin.costo < est.venta - est.costo ? 'text-amber-600 font-medium' : 'text-green-600 font-medium'}>
+                                  Margen actual: {(est.venta - fin.costo).toFixed(1)} UF ({est.venta > 0 ? (((est.venta - fin.costo) / est.venta) * 100).toFixed(0) : 0}%)
+                                </span>
+                              </div>
+                              {pctConsumo > 100 && <p className="text-[11px] text-red-600 mt-1">⚠ El costo real superó el máximo estimado en {(fin.costo - est.costo).toFixed(1)} UF — cada hora extra sale directo del margen</p>}
                             </>
                           ) : (
-                            <p className="text-sm text-neutral-400">Sin COT vinculada — se compara solo el costo real: {fin.costo.toFixed(1)} UF</p>
+                            <p className="text-sm text-neutral-400">Sin COT vinculada — costo real a la fecha: {fin.costo.toFixed(1)} UF</p>
                           )}
                         </div>
                         <div className="p-3 bg-neutral-50 dark:bg-neutral-800/50 rounded-lg">
