@@ -2536,16 +2536,18 @@ export default function MatrizIntranet() {
       showNotification('success', 'Horas registradas correctamente');
     };
     
-    // Informe interno: HsH del mes por profesional, a tarifa de COSTO (solo admin)
+    // Informe de horas del mes por profesional, valorizado a tarifa de pago (solo admin)
+    const [printProfesional, setPrintProfesional] = useState('all');
     const imprimirHsHCosto = () => {
       const delMes = horasRegistradas.filter(h => {
+        if (printProfesional !== 'all' && String(h.profesionalId) !== String(printProfesional)) return false;
         const mh = h.mesRegistro || (() => {
           const f = parseLocalDate(h.fecha);
           return `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}`;
         })();
         return mh === mesHoras;
       });
-      if (delMes.length === 0) { showNotification('error', 'No hay horas registradas en este mes'); return; }
+      if (delMes.length === 0) { showNotification('error', printProfesional === 'all' ? 'No hay horas registradas en este mes' : 'Ese profesional no tiene horas registradas este mes'); return; }
       const porProf = {};
       delMes.forEach(h => {
         const key = String(h.profesionalId);
@@ -2565,14 +2567,14 @@ export default function MatrizIntranet() {
           return `<tr><td>${h.proyectoId || '-'}</td><td style="text-align:center">${h.tipo || '-'}</td><td>${h.entregable || '-'}</td><td style="text-align:center">${h.semana ? 'S' + h.semana : '-'}</td><td style="text-align:right">${hrs.toFixed(1)}</td><td style="text-align:right">${costo.toFixed(2)}</td></tr>`;
         }).join('');
         totalGeneralHrs += subHrs; totalGeneralCosto += subCosto;
-        cuerpo += `<h3>${col ? col.nombre : 'Profesional ' + pid}${col && col.cargo ? ' · ' + col.cargo : ''} <span class="tarifa">(tarifa costo: ${tarifaCosto.toFixed(2)} UF/h)</span></h3>` +
-          `<table><thead><tr><th>Proyecto</th><th>Tipo</th><th>Detalle</th><th>Sem</th><th style="text-align:right">Horas</th><th style="text-align:right">Costo (UF)</th></tr></thead>` +
+        cuerpo += `<h3>${col ? col.nombre : 'Profesional ' + pid}${col && col.cargo ? ' · ' + col.cargo : ''} <span class="tarifa">(tarifa: ${tarifaCosto.toFixed(2)} UF/h)</span></h3>` +
+          `<table><thead><tr><th>Proyecto</th><th>Tipo</th><th>Detalle</th><th>Sem</th><th style="text-align:right">Horas</th><th style="text-align:right">Valor (UF)</th></tr></thead>` +
           `<tbody>${filas}</tbody>` +
           `<tfoot><tr><td colspan="4">Subtotal ${col ? col.nombre : ''}</td><td style="text-align:right">${subHrs.toFixed(1)}</td><td style="text-align:right">${subCosto.toFixed(2)}</td></tr></tfoot></table>`;
       });
       const pw = window.open('', '_blank');
       if (!pw) { showNotification('error', 'Habilita las ventanas emergentes para poder imprimir'); return; }
-      pw.document.write(`<html><head><title>HsH al costo — ${nombreMes}</title><style>
+      pw.document.write(`<html><head><title>Registro HsH — ${nombreMes}</title><style>
 @page { size: letter portrait; margin: 14mm; }
 body { font-family: 'Segoe UI', system-ui, sans-serif; color: #171717; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #f97316; padding-bottom: 8px; margin-bottom: 14px; }
@@ -2586,7 +2588,7 @@ tr { page-break-inside: avoid; }
 .total { margin-top: 16px; padding: 8px 12px; background: #ffedd5; border: 1px solid #fdba74; border-radius: 6px; display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; }
 .nota { color: #999; font-size: 8px; margin-top: 18px; border-top: 1px solid #e5e5e5; padding-top: 6px; display: flex; justify-content: space-between; }
 </style></head><body>
-<div class="header"><div><h1>INFORME INTERNO — HsH AL COSTO</h1><p class="sub">${nombreMes.toUpperCase()} · VALORES DE PAGO POR PROFESIONAL · USO INTERNO</p></div><img src="${window.location.origin}/logo-afor.png" style="height:34px"/></div>
+<div class="header"><div><h1>REGISTRO DE HORAS HsH</h1><p class="sub">${nombreMes.toUpperCase()}${printProfesional !== 'all' ? (() => { const c = profesionales.find(x => String(x.id) === String(printProfesional)); return c ? ' · ' + c.nombre.toUpperCase() : ''; })() : ''}</p></div><img src="${window.location.origin}/logo-afor.png" style="height:34px"/></div>
 ${cuerpo}
 <div class="total"><span>TOTAL GENERAL (${totalGeneralHrs.toFixed(1)} horas)</span><span>${totalGeneralCosto.toFixed(2)} UF</span></div>
 <div class="nota"><span>Generado: ${new Date().toLocaleString('es-CL')}</span><span>AFOR Intranet</span></div>
@@ -2636,10 +2638,23 @@ ${cuerpo}
               <ChevronRight className="w-4 h-4 text-neutral-600 dark:text-neutral-300" />
             </button>
             {isAdmin && (
-              <Button variant="secondary" onClick={imprimirHsHCosto}>
-                <Printer className="w-4 h-4 mr-2" />
-                HsH al costo
-              </Button>
+              <div className="flex items-center gap-2">
+                <select
+                  value={printProfesional}
+                  onChange={e => setPrintProfesional(e.target.value)}
+                  className="bg-white dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 rounded px-2 py-2 text-sm text-neutral-800 dark:text-neutral-100 focus:outline-none focus:border-orange-500"
+                  title="De quién imprimir las horas"
+                >
+                  <option value="all">Todos</option>
+                  {profesionales.map(c => (
+                    <option key={c.id} value={c.id}>{c.nombre}</option>
+                  ))}
+                </select>
+                <Button variant="secondary" onClick={imprimirHsHCosto}>
+                  <Printer className="w-4 h-4 mr-2" />
+                  Imprimir HsH
+                </Button>
+              </div>
             )}
           </div>
         </div>
