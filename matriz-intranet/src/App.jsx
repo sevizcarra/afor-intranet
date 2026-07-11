@@ -1704,6 +1704,7 @@ export default function MatrizIntranet() {
     { id: 'proyectos', label: 'Proyectos', icon: FolderKanban, adminOnly: false },
     { id: 'horas', label: 'Carga HsH', icon: Clock, adminOnly: false },
     { id: 'perfil', label: 'Mi Perfil', icon: User, adminOnly: false },
+    { id: 'finanzas', label: 'Finanzas', icon: DollarSign, adminOnly: true },
     { id: 'config', label: 'Config', icon: Settings, adminOnly: true },
   ];
   const navItems = isAdmin ? allNavItems : allNavItems.filter(item => !item.adminOnly);
@@ -2291,6 +2292,290 @@ export default function MatrizIntranet() {
             </div>
           )}
         </Card>
+      </div>
+    );
+  };
+
+  // ============================================
+  // PÁGINA: FINANZAS (solo admin)
+  // ============================================
+  const FinanzasPage = () => {
+    const [ufHoy, setUfHoy] = useState(null);
+    const [expandido, setExpandido] = useState(null);
+
+    // Valor UF del día (Banco Central vía mindicador.cl)
+    useEffect(() => {
+      fetch('https://mindicador.cl/api/uf')
+        .then(r => r.json())
+        .then(d => {
+          const v = d && d.serie && d.serie[0] && d.serie[0].valor;
+          if (v) setUfHoy(v);
+        })
+        .catch(() => { /* sin conexión al indicador: se muestran solo UF */ });
+    }, []);
+
+    const clp = (uf) => ufHoy ? Math.round(uf * ufHoy).toLocaleString('es-CL') : null;
+    const ESTADOS_EDP_FIN = [
+      { id: 'borrador', label: 'Borrador', color: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300' },
+      { id: 'enviado', label: 'Enviado', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' },
+      { id: 'facturado', label: 'Facturado', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300' },
+      { id: 'pagado', label: 'Pagado', color: 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300' },
+    ];
+
+    // Cálculo financiero por proyecto
+    const calcularFinanzas = (p) => {
+      const meses = {};
+      (p.entregables || []).forEach(ent => {
+        if (ent.frozen) return;
+        const st = statusData[`${p.id}_${ent.id}`];
+        if (!st) return;
+        [['sentRevADate', 'valorRevA'], ['sentRevBDate', 'valorRevB'], ['sentRev0Date', 'valorRev0']].forEach(([dk, vk]) => {
+          const val = parseFloat(ent[vk]) || 0;
+          if (st[dk] && val > 0) {
+            const f = parseLocalDate(st[dk]);
+            const mes = `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}`;
+            meses[mes] = (meses[mes] || 0) + val;
+          }
+        });
+      });
+      // REU/VIS a tarifa de venta (mismo criterio que el EDP)
+      horasRegistradas.forEach(h => {
+        if (h.proyectoId !== p.id) return;
+        if (h.tipo !== 'REU' && h.tipo !== 'VIS') return;
+        const mes = h.mesRegistro || (() => { const f = parseLocalDate(h.fecha); return `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}`; })();
+        const col = profesionales.find(c => String(c.id) === String(h.profesionalId));
+        const tar = tarifas.find(t => t.id === ((col && col.rolTarifa) || 'proyectista'));
+        meses[mes] = (meses[mes] || 0) + (parseFloat(h.horas) || 0) * ((tar && tar.tarifaVenta) || 0);
+      });
+      // condiciones comerciales guardadas por mes (descuentos del EDP)
+      const mesesNeto = {};
+      let facturado = 0;
+      Object.entries(meses).sort((a, b) => a[0].localeCompare(b[0])).forEach(([mes, subtotal]) => {
+        const ec = (p.edpCond || {})[mes];
+        let neto = subtotal;
+        if (ec && ec.aplicar) {
+          const fSimp = ec.simplificado ? 0.8 : 1;
+          const dPct = Number(ec.descuento) || 0;
+          neto = subtotal * fSimp * (1 - dPct / 100);
+        }
+        mesesNeto[mes] = neto;
+        facturado += neto;
+      });
+      // costo interno: TODAS las horas del proyecto a tarifa de pago
+      let costo = 0;
+      horasRegistradas.forEach(h => {
+        if (h.proyectoId !== p.id) return;
+        const col = profesionales.find(c => String(c.id) === String(h.profesionalId));
+        costo += (parseFloat(h.horas) || 0) * ((col && parseFloat(col.tarifaInterna)) || 0);
+      });
+      const fin = p.finanzas || {};
+      const oc = parseFloat(fin.ocUF) || 0;
+      const estados = fin.estadosEDP || {};
+      let cobrado = 0;
+      Object.entries(mesesNeto).forEach(([mes, neto]) => { if (estados[mes] === 'pagado') cobrado += neto; });
+      const margen = facturado - costo;
+      const margenPct = facturado > 0 ? (margen / facturado) * 100 : null;
+      return { mesesNeto, facturado, costo, oc, saldoOC: oc > 0 ? oc - facturado : null, margen, margenPct, cobrado, porCobrar: facturado - cobrado, estados, ocNumero: fin.ocNumero || '' };
+    };
+
+    const filas = proyectos.map(p => ({ p, fin: calcularFinanzas(p) }));
+    const tot = filas.reduce((acc, { fin }) => ({
+      oc: acc.oc + fin.oc,
+      facturado: acc.facturado + fin.facturado,
+      costo: acc.costo + fin.costo,
+      cobrado: acc.cobrado + fin.cobrado,
+    }), { oc: 0, facturado: 0, costo: 0, cobrado: 0 });
+    const totMargen = tot.facturado - tot.costo;
+
+    const semaforo = (pct, margen) => {
+      if (pct === null) return 'text-neutral-400';
+      if (margen < 0) return 'text-red-600';
+      if (pct >= 30) return 'text-green-600';
+      if (pct >= 10) return 'text-amber-600';
+      return 'text-red-600';
+    };
+
+    const CardCifra = ({ label, uf, destaque, color }) => (
+      <div className={`p-4 rounded-lg border text-center ${destaque ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800' : 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700'}`}>
+        <p className="text-neutral-500 dark:text-neutral-400 text-xs mb-1">{label}</p>
+        <p className={`text-xl font-bold ${color || (destaque ? 'text-orange-600' : 'text-neutral-800 dark:text-neutral-100')}`}>{uf.toFixed(1)} UF</p>
+        {ufHoy && <p className="text-[10px] text-neutral-400 mt-0.5">≈ ${clp(uf)} · c/IVA ${clp(uf * 1.19)}</p>}
+      </div>
+    );
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h1 className="text-xl text-neutral-800 dark:text-neutral-100 font-light">Finanzas</h1>
+            <p className="text-neutral-500 dark:text-neutral-400 text-sm">OC, facturación, costos y márgenes por proyecto</p>
+          </div>
+          {ufHoy && (
+            <div className="text-right">
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">UF hoy</p>
+              <p className="text-sm font-bold text-neutral-800 dark:text-neutral-100">${ufHoy.toLocaleString('es-CL')}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Resumen global */}
+        <Card className="p-4">
+          <h2 className="text-neutral-800 dark:text-neutral-100 text-sm font-medium mb-4">Resumen Global</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <CardCifra label="OC comprometidas" uf={tot.oc} />
+            <CardCifra label="Facturado (neto)" uf={tot.facturado} destaque />
+            <CardCifra label="Por facturar" uf={Math.max(0, tot.oc - tot.facturado)} />
+            <CardCifra label="Cobrado" uf={tot.cobrado} color="text-green-600" />
+            <CardCifra label="Por cobrar" uf={tot.facturado - tot.cobrado} color="text-amber-600" />
+            <CardCifra label="Costo HsH" uf={tot.costo} />
+          </div>
+          <div className="mt-3 p-3 bg-neutral-50 dark:bg-neutral-800/50 rounded-lg flex items-center justify-between">
+            <span className="text-sm text-neutral-600 dark:text-neutral-300">Margen global (facturado − costo)</span>
+            <span className={`text-lg font-bold ${semaforo(tot.facturado > 0 ? (totMargen / tot.facturado) * 100 : null, totMargen)}`}>
+              {totMargen.toFixed(1)} UF{tot.facturado > 0 ? ` · ${((totMargen / tot.facturado) * 100).toFixed(0)}%` : ''}
+            </span>
+          </div>
+        </Card>
+
+        {/* Detalle por proyecto */}
+        <div className="space-y-3">
+          {filas.map(({ p, fin }) => (
+            <Card key={p.id} className="p-4">
+              <div className="flex items-center justify-between cursor-pointer" onClick={() => setExpandido(expandido === p.id ? null : p.id)}>
+                <div className="flex items-center gap-3 min-w-0">
+                  {expandido === p.id ? <ChevronDown className="w-4 h-4 text-neutral-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0" />}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-orange-500 font-mono">{p.id}</span>
+                      <Badge variant={p.estado === 'Activo' ? 'success' : 'default'}>{p.estado}</Badge>
+                    </div>
+                    <p className="text-neutral-800 dark:text-neutral-100 text-sm truncate">{p.nombre}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 text-right shrink-0">
+                  <div className="hidden sm:block">
+                    <p className="text-[10px] text-neutral-400">Facturado</p>
+                    <p className="text-sm font-medium text-neutral-800 dark:text-neutral-100">{fin.facturado.toFixed(1)} UF</p>
+                  </div>
+                  <div className="hidden md:block">
+                    <p className="text-[10px] text-neutral-400">Costo</p>
+                    <p className="text-sm font-medium text-neutral-800 dark:text-neutral-100">{fin.costo.toFixed(1)} UF</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-neutral-400">Margen</p>
+                    <p className={`text-sm font-bold ${semaforo(fin.margenPct, fin.margen)}`}>
+                      {fin.margen.toFixed(1)} UF{fin.margenPct !== null ? ` · ${fin.margenPct.toFixed(0)}%` : ''}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {expandido === p.id && (
+                <div className="mt-4 pt-4 border-t border-neutral-200 dark:border-neutral-700 space-y-4">
+                  {/* OC */}
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                    <div>
+                      <label className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">N° OC</label>
+                      <input
+                        type="text"
+                        defaultValue={fin.ocNumero}
+                        placeholder="Ej: OC-4500123"
+                        onBlur={async e => {
+                          const v = e.target.value.trim();
+                          if (v !== fin.ocNumero) {
+                            const ok = await updateProyectoField(p.id, { 'finanzas.ocNumero': v });
+                            showNotification(ok ? 'success' : 'error', ok ? 'N° OC guardado' : 'No se pudo guardar');
+                          }
+                        }}
+                        className="w-full mt-1 bg-white dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 rounded px-3 py-2 text-sm text-neutral-800 dark:text-neutral-100 focus:outline-none focus:border-orange-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Monto OC (UF neto)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        defaultValue={fin.oc || ''}
+                        placeholder="0.0"
+                        onBlur={async e => {
+                          const v = parseFloat(e.target.value) || 0;
+                          if (v !== fin.oc) {
+                            const ok = await updateProyectoField(p.id, { 'finanzas.ocUF': v });
+                            showNotification(ok ? 'success' : 'error', ok ? 'Monto OC guardado' : 'No se pudo guardar');
+                          }
+                        }}
+                        className="w-full mt-1 bg-white dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 rounded px-3 py-2 text-sm text-right text-neutral-800 dark:text-neutral-100 focus:outline-none focus:border-orange-500"
+                      />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400">Saldo OC</p>
+                      <p className={`text-lg font-bold ${fin.saldoOC === null ? 'text-neutral-400' : fin.saldoOC < 0 ? 'text-red-600' : 'text-neutral-800 dark:text-neutral-100'}`}>
+                        {fin.saldoOC === null ? '—' : `${fin.saldoOC.toFixed(1)} UF`}
+                      </p>
+                      {fin.saldoOC !== null && ufHoy && <p className="text-[10px] text-neutral-400">≈ ${clp(fin.saldoOC)}</p>}
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400">Por cobrar</p>
+                      <p className="text-lg font-bold text-amber-600">{fin.porCobrar.toFixed(1)} UF</p>
+                      {ufHoy && <p className="text-[10px] text-neutral-400">≈ ${clp(fin.porCobrar)}</p>}
+                    </div>
+                  </div>
+
+                  {/* Detalle mensual */}
+                  {Object.keys(fin.mesesNeto).length === 0 ? (
+                    <p className="text-sm text-neutral-500 dark:text-neutral-400 text-center py-3">Sin avance facturable aún</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-neutral-500 dark:text-neutral-400 text-xs border-b border-neutral-200 dark:border-neutral-600">
+                            <th className="pb-2">Mes (EDP)</th>
+                            <th className="pb-2 text-right">Neto UF</th>
+                            <th className="pb-2 text-right">c/IVA CLP</th>
+                            <th className="pb-2 text-center">Estado</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(fin.mesesNeto).map(([mes, neto]) => {
+                            const estadoMes = fin.estados[mes] || 'borrador';
+                            const info = ESTADOS_EDP_FIN.find(x => x.id === estadoMes) || ESTADOS_EDP_FIN[0];
+                            return (
+                              <tr key={mes} className="border-b border-neutral-100 dark:border-neutral-700">
+                                <td className="py-2 text-neutral-800 dark:text-neutral-100 capitalize">
+                                  {parseLocalDate(mes).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })}
+                                </td>
+                                <td className="py-2 text-right font-medium text-neutral-800 dark:text-neutral-100">{neto.toFixed(1)}</td>
+                                <td className="py-2 text-right text-neutral-500 dark:text-neutral-400">{ufHoy ? `$${clp(neto * 1.19)}` : '—'}</td>
+                                <td className="py-2 text-center">
+                                  <select
+                                    value={estadoMes}
+                                    onChange={async e => {
+                                      const ok = await updateProyectoField(p.id, { ['finanzas.estadosEDP.' + mes]: e.target.value });
+                                      showNotification(ok ? 'success' : 'error', ok ? `EDP ${mes} → ${e.target.value}` : 'No se pudo guardar');
+                                    }}
+                                    className={`${info.color} text-xs font-medium rounded-full px-3 py-1 border-0 cursor-pointer`}
+                                  >
+                                    {ESTADOS_EDP_FIN.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}
+                                  </select>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Card>
+          ))}
+          {filas.length === 0 && (
+            <Card className="p-8 text-center">
+              <DollarSign className="w-12 h-12 mx-auto text-neutral-300 dark:text-neutral-600 mb-3" />
+              <p className="text-neutral-500 dark:text-neutral-400">No hay proyectos para mostrar</p>
+            </Card>
+          )}
+        </div>
       </div>
     );
   };
@@ -4844,6 +5129,7 @@ ${cotHtml}
   const HorasPageStable = useStableComponent(HorasPage);
   const PerfilPageStable = useStableComponent(PerfilPage);
   const FacturacionPageStable = useStableComponent(FacturacionPage);
+  const FinanzasPageStable = useStableComponent(FinanzasPage);
 
   // ============================================
   // PANTALLA DE CARGA (mientras se conecta a Firestore)
@@ -5096,6 +5382,7 @@ ${cotHtml}
         {currentPage === 'proyectos' && <ProyectosPageStable />}
         {currentPage === 'horas' && <HorasPageStable />}
         {currentPage === 'perfil' && <PerfilPageStable />}
+        {currentPage === 'finanzas' && isAdmin && <FinanzasPageStable />}
         {currentPage === 'facturacion' && <FacturacionPageStable />}
         {currentPage === 'config' && (
           <div className="p-4 sm:p-6 max-w-4xl mx-auto">
