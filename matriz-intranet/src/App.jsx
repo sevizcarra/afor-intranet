@@ -975,7 +975,10 @@ export default function MatrizIntranet() {
 
     // Suscribir a tarifas y recetas (motor paramétrico COT)
     const unsubTarifas = subscribeToTarifas((data) => {
-      if (data) setTarifas(data);
+      if (data) {
+        tarifasSyncRef.current = JSON.stringify(data);
+        setTarifas(data);
+      }
     });
     const unsubRecetas = subscribeToRecetas((data) => {
       if (data) {
@@ -984,6 +987,7 @@ export default function MatrizIntranet() {
         DEFAULT_RECETAS.forEach(def => {
           if (!merged.find(r => r.id === def.id)) merged.push(def);
         });
+        recetasSyncRef.current = JSON.stringify(merged);
         setRecetas(merged);
       }
     });
@@ -1294,18 +1298,29 @@ export default function MatrizIntranet() {
   const [recetas, setRecetas] = useState(DEFAULT_RECETAS);
 
   // AUTO-GUARDADO: Tarifas y Recetas en Firestore
-  const tarifasInitRef = React.useRef(false);
-  const recetasInitRef = React.useRef(false);
+  // Fix bucle de escritura: solo guardar si el contenido difiere de lo último
+  // recibido/guardado del servidor. El patrón anterior re-guardaba en cada snapshot
+  // (snapshot→setState→efecto→save→snapshot…) quemando ~2 escrituras/segundo.
+  const tarifasSyncRef = React.useRef(null);
+  const recetasSyncRef = React.useRef(null);
   useEffect(() => {
     if (!firestoreReady) return;
-    if (!tarifasInitRef.current) { tarifasInitRef.current = true; return; }
-    const timer = setTimeout(() => { saveTarifas(tarifas); }, 500);
+    const j = JSON.stringify(tarifas);
+    if (tarifasSyncRef.current === null || j === tarifasSyncRef.current) {
+      if (tarifasSyncRef.current === null) tarifasSyncRef.current = j;
+      return;
+    }
+    const timer = setTimeout(() => { tarifasSyncRef.current = j; saveTarifas(tarifas); }, 500);
     return () => clearTimeout(timer);
   }, [tarifas, firestoreReady]);
   useEffect(() => {
     if (!firestoreReady) return;
-    if (!recetasInitRef.current) { recetasInitRef.current = true; return; }
-    const timer = setTimeout(() => { saveRecetas(recetas); }, 500);
+    const j = JSON.stringify(recetas);
+    if (recetasSyncRef.current === null || j === recetasSyncRef.current) {
+      if (recetasSyncRef.current === null) recetasSyncRef.current = j;
+      return;
+    }
+    const timer = setTimeout(() => { recetasSyncRef.current = j; saveRecetas(recetas); }, 500);
     return () => clearTimeout(timer);
   }, [recetas, firestoreReady]);
 
