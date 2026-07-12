@@ -3039,6 +3039,30 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
     
     // Informe de horas del mes por profesional, valorizado a tarifa de pago (solo admin)
     const [printProfesional, setPrintProfesional] = useState('all');
+    // Edición en línea de un registro de horas
+    const [editHoraId, setEditHoraId] = useState(null);
+    const [editHoraDatos, setEditHoraDatos] = useState({ semana: '', horas: '', revision: '' });
+    const guardarEdicionHora = async (h) => {
+      const semanaNueva = parseInt(editHoraDatos.semana);
+      const horasNuevas = parseFloat(editHoraDatos.horas);
+      if (!semanaNueva || !horasNuevas || horasNuevas <= 0) {
+        showNotification('error', 'Semana y horas deben ser válidas');
+        return;
+      }
+      const actualizada = {
+        ...h,
+        semana: semanaNueva,
+        horas: horasNuevas,
+        revision: h.revision ? (editHoraDatos.revision || h.revision) : h.revision
+      };
+      const ok = await saveHora(actualizada);
+      if (ok) {
+        showNotification('success', 'Registro actualizado');
+        setEditHoraId(null);
+      } else {
+        showNotification('error', 'No se pudo actualizar el registro');
+      }
+    };
     const imprimirHsHCosto = () => {
       const delMes = horasRegistradas.filter(h => {
         if (printProfesional !== 'all' && String(h.profesionalId) !== String(printProfesional)) return false;
@@ -3293,24 +3317,98 @@ ${cuerpo}
                           <td className="p-2 text-neutral-800 dark:text-neutral-100">{col?.iniciales}</td>
                           <td className="p-2 text-orange-600 font-mono text-xs">{h.proyectoId}</td>
                           <td className="p-2 text-neutral-600 dark:text-neutral-300 truncate max-w-[120px]">{h.entregable}</td>
-                          <td className="p-2 text-center"><Badge>{h.revision}</Badge></td>
-                          <td className="p-2 text-center text-neutral-500 dark:text-neutral-400">S{h.semana}</td>
-                          <td className="p-2 text-right text-neutral-800 dark:text-neutral-100">{h.horas}</td>
-                          <td className="p-2 text-right text-green-600">{(h.horas * (col?.tarifaInterna || 0)).toFixed(2)}</td>
+                          <td className="p-2 text-center">
+                            {editHoraId === (h._docId || h.id) && h.revision ? (
+                              <select
+                                value={editHoraDatos.revision}
+                                onChange={e => setEditHoraDatos(prev => ({ ...prev, revision: e.target.value }))}
+                                className="bg-white dark:bg-neutral-700 border border-orange-300 rounded px-1 py-0.5 text-xs text-neutral-800 dark:text-neutral-100"
+                              >
+                                <option value="REV_A">REV_A</option>
+                                <option value="REV_B">REV_B</option>
+                                <option value="REV_0">REV_0</option>
+                              </select>
+                            ) : (
+                              <Badge>{h.revision}</Badge>
+                            )}
+                          </td>
+                          <td className="p-2 text-center text-neutral-500 dark:text-neutral-400">
+                            {editHoraId === (h._docId || h.id) ? (
+                              <select
+                                value={editHoraDatos.semana}
+                                onChange={e => setEditHoraDatos(prev => ({ ...prev, semana: e.target.value }))}
+                                className="bg-white dark:bg-neutral-700 border border-orange-300 rounded px-1 py-0.5 text-xs text-neutral-800 dark:text-neutral-100"
+                              >
+                                {weeks.map(w => (
+                                  <option key={w.num} value={w.num}>S{w.num}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              `S${h.semana}`
+                            )}
+                          </td>
+                          <td className="p-2 text-right text-neutral-800 dark:text-neutral-100">
+                            {editHoraId === (h._docId || h.id) ? (
+                              <input
+                                type="number"
+                                step="0.5"
+                                min="0.5"
+                                value={editHoraDatos.horas}
+                                onChange={e => setEditHoraDatos(prev => ({ ...prev, horas: e.target.value }))}
+                                className="w-16 bg-white dark:bg-neutral-700 border border-orange-300 rounded px-1 py-0.5 text-xs text-right text-neutral-800 dark:text-neutral-100"
+                              />
+                            ) : (
+                              h.horas
+                            )}
+                          </td>
+                          <td className="p-2 text-right text-green-600">{((editHoraId === (h._docId || h.id) ? (parseFloat(editHoraDatos.horas) || 0) : h.horas) * (col?.tarifaInterna || 0)).toFixed(2)}</td>
                           {isAdmin && (
                             <td className="p-2 text-center">
-                              <button
-                                onClick={async () => {
-                                  if (window.confirm(`¿Eliminar registro de ${col?.iniciales || 'N/A'}?\n${h.entregable} - ${h.horas}hrs`)) {
-                                    await deleteHoraFS(h._docId || h.id);
-                                    showNotification('success', 'Registro eliminado');
-                                  }
-                                }}
-                                className="p-1 hover:bg-red-100 rounded text-neutral-400 hover:text-red-500 transition-colors"
-                                title="Eliminar"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              <div className="flex items-center justify-center gap-0.5">
+                                {editHoraId === (h._docId || h.id) ? (
+                                  <>
+                                    <button
+                                      onClick={() => guardarEdicionHora(h)}
+                                      className="p-1 hover:bg-green-100 dark:hover:bg-green-900/30 rounded text-green-600 transition-colors"
+                                      title="Guardar cambios"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => setEditHoraId(null)}
+                                      className="p-1 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded text-neutral-400 transition-colors"
+                                      title="Cancelar"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      onClick={() => {
+                                        setEditHoraId(h._docId || h.id);
+                                        setEditHoraDatos({ semana: String(h.semana || ''), horas: String(h.horas || ''), revision: h.revision || '' });
+                                      }}
+                                      className="p-1 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded text-neutral-400 hover:text-blue-500 transition-colors"
+                                      title="Editar registro"
+                                    >
+                                      <Pencil className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={async () => {
+                                        if (window.confirm(`¿Eliminar registro de ${col?.iniciales || 'N/A'}?\n${h.entregable} - ${h.horas}hrs`)) {
+                                          await deleteHoraFS(h._docId || h.id);
+                                          showNotification('success', 'Registro eliminado');
+                                        }
+                                      }}
+                                      className="p-1 hover:bg-red-100 rounded text-neutral-400 hover:text-red-500 transition-colors"
+                                      title="Eliminar"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
                             </td>
                           )}
                         </tr>
