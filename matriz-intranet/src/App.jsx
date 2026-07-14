@@ -3127,6 +3127,11 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
     
     // Informe de horas del mes por profesional, valorizado a tarifa de pago (solo admin)
     const [printProfesional, setPrintProfesional] = useState('all');
+    // Filtros y orden de la tabla de horas del mes
+    const [filtroProfTabla, setFiltroProfTabla] = useState('all');
+    const [filtroProyTabla, setFiltroProyTabla] = useState('all');
+    const [ordenTabla, setOrdenTabla] = useState('sem-asc'); // sem-asc | sem-desc | reciente
+
     // Edición en línea de un registro de horas
     const [editHoraId, setEditHoraId] = useState(null);
     const [editHoraDatos, setEditHoraDatos] = useState({ semana: '', horas: '', revision: '' });
@@ -3173,17 +3178,20 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
         const col = profesionales.find(c => String(c.id) === pid);
         const tarifaCosto = (col && parseFloat(col.tarifaInterna)) || 0;
         let subHrs = 0, subCosto = 0;
-        const filas = lista.map(h => {
+        const listaOrdenada = [...lista].sort((a, b) => (a.semana || 0) - (b.semana || 0) || String(a.proyectoId || '').localeCompare(String(b.proyectoId || '')));
+        const filas = listaOrdenada.map(h => {
           const hrs = parseFloat(h.horas) || 0;
           const costo = hrs * tarifaCosto;
           subHrs += hrs; subCosto += costo;
-          return `<tr><td>${h.proyectoId || '-'}</td><td style="text-align:center">${h.tipo || '-'}</td><td>${h.entregable || '-'}</td><td style="text-align:center">${h.semana ? 'S' + h.semana : '-'}</td><td style="text-align:right">${hrs.toFixed(1)}</td><td style="text-align:right">${costo.toFixed(2)}</td></tr>`;
+          const proy = proyectos.find(p => p.id === h.proyectoId);
+          const nombreProy = proy ? `${h.proyectoId} — ${proy.nombre}` : (h.proyectoId || '-');
+          return `<tr><td>${nombreProy}</td><td style="text-align:center">${h.tipo || '-'}</td><td style="text-align:center">${h.revision || '—'}</td><td>${h.entregable || '-'}</td><td style="text-align:center">${h.semana ? 'S' + h.semana : '-'}</td><td style="text-align:right">${hrs.toFixed(1)}</td><td style="text-align:right">${costo.toFixed(2)}</td></tr>`;
         }).join('');
         totalGeneralHrs += subHrs; totalGeneralCosto += subCosto;
         cuerpo += `<h3>${col ? col.nombre : 'Profesional ' + pid}${col && col.cargo ? ' · ' + col.cargo : ''} <span class="tarifa">(tarifa: ${tarifaCosto.toFixed(2)} UF/h)</span></h3>` +
-          `<table><thead><tr><th>Proyecto</th><th>Tipo</th><th>Detalle</th><th>Sem</th><th style="text-align:right">Horas</th><th style="text-align:right">Valor (UF)</th></tr></thead>` +
+          `<table><thead><tr><th>Proyecto</th><th style="text-align:center">Tipo</th><th style="text-align:center">Rev</th><th>Detalle</th><th style="text-align:center">Sem</th><th style="text-align:right">Horas</th><th style="text-align:right">Valor (UF)</th></tr></thead>` +
           `<tbody>${filas}</tbody>` +
-          `<tfoot><tr><td colspan="4">Subtotal ${col ? col.nombre : ''}</td><td style="text-align:right">${subHrs.toFixed(1)}</td><td style="text-align:right">${subCosto.toFixed(2)}</td></tr></tfoot></table>`;
+          `<tfoot><tr><td colspan="5">Subtotal ${col ? col.nombre : ''}</td><td style="text-align:right">${subHrs.toFixed(1)}</td><td style="text-align:right">${subCosto.toFixed(2)}</td></tr></tfoot></table>`;
       });
       const pw = window.open('', '_blank');
       if (!pw) { showNotification('error', 'Habilita las ventanas emergentes para poder imprimir'); return; }
@@ -3213,10 +3221,16 @@ ${cuerpo}
     const horasDelMes = horasRegistradas.filter(h => {
       // Los no-admin solo ven sus propias horas
       if (!isAdmin && String(h.profesionalId) !== String(currentUser?.profesionalId)) return false;
+      if (filtroProfTabla !== 'all' && String(h.profesionalId) !== String(filtroProfTabla)) return false;
+      if (filtroProyTabla !== 'all' && h.proyectoId !== filtroProyTabla) return false;
       const fecha = new Date(h.fecha);
       const [yearSel, monthSel] = mesHoras.split('-').map(Number);
       // Filtrar por el mes seleccionado
       return fecha.getMonth() === (monthSel - 1) && fecha.getFullYear() === yearSel;
+    }).sort((a, b) => {
+      if (ordenTabla === 'sem-asc') return (a.semana || 0) - (b.semana || 0) || String(a.proyectoId || '').localeCompare(String(b.proyectoId || ''));
+      if (ordenTabla === 'sem-desc') return (b.semana || 0) - (a.semana || 0) || String(a.proyectoId || '').localeCompare(String(b.proyectoId || ''));
+      return (b.id || 0) - (a.id || 0); // registro más reciente primero
     });
     
     return (
@@ -3369,9 +3383,47 @@ ${cuerpo}
           
           {/* Resumen del mes */}
           <Card className="p-3 sm:p-4 lg:col-span-2">
-            <h2 className="text-neutral-800 dark:text-neutral-100 text-sm font-medium mb-3 sm:mb-4">
-              Horas - {new Date(mesHoras + '-01').toLocaleDateString('es-CL', { month: 'short', year: 'numeric' })}
-            </h2>
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-3 sm:mb-4">
+              <h2 className="text-neutral-800 dark:text-neutral-100 text-sm font-medium capitalize">
+                Horas — {parseLocalDate(mesHoras).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })}
+              </h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                {isAdmin && (
+                  <select
+                    value={filtroProfTabla}
+                    onChange={e => setFiltroProfTabla(e.target.value)}
+                    className="bg-white dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 rounded px-2 py-1 text-xs text-neutral-700 dark:text-neutral-200 focus:outline-none focus:border-orange-500"
+                    title="Filtrar por profesional"
+                  >
+                    <option value="all">Todos los profesionales</option>
+                    {profesionales.map(c => (
+                      <option key={c.id} value={c.id}>{c.nombre}</option>
+                    ))}
+                  </select>
+                )}
+                <select
+                  value={filtroProyTabla}
+                  onChange={e => setFiltroProyTabla(e.target.value)}
+                  className="bg-white dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 rounded px-2 py-1 text-xs text-neutral-700 dark:text-neutral-200 focus:outline-none focus:border-orange-500"
+                  title="Filtrar por proyecto"
+                >
+                  <option value="all">Todos los proyectos</option>
+                  {proyectos.map(p => (
+                    <option key={p.id} value={p.id}>{p.id}</option>
+                  ))}
+                </select>
+                <select
+                  value={ordenTabla}
+                  onChange={e => setOrdenTabla(e.target.value)}
+                  className="bg-white dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 rounded px-2 py-1 text-xs text-neutral-700 dark:text-neutral-200 focus:outline-none focus:border-orange-500"
+                  title="Ordenar registros"
+                >
+                  <option value="sem-asc">Semana ↑</option>
+                  <option value="sem-desc">Semana ↓</option>
+                  <option value="reciente">Recién cargadas</option>
+                </select>
+              </div>
+            </div>
             
             {horasDelMes.length === 0 ? (
               <div className="text-center py-6 sm:py-8 text-neutral-500 dark:text-neutral-400">
