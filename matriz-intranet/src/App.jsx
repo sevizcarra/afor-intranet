@@ -273,6 +273,85 @@ const getDeliverableProgress = (status) => {
   return 0;
 };
 
+// Construye los puntos de la Curva S con modelo de VALOR GANADO:
+// cada entregable aporta su avance en rampa a lo largo de sus ventanas
+// (0→70% durante REV_A, 70→90% en REV_B, 90→100% en REV_0/P),
+// usando la MISMA convención de semanas que la carta Gantt (weekStart−1).
+// La curva real se construye con las FECHAS efectivas de cada hito.
+const construirCurvaS = ({ entregables, getStatus, duracionesPorTipo, duracionRevision, startDate }) => {
+  const activos = entregables.filter(d => !d.frozen);
+  const total = activos.length || 1;
+  const ramas = activos.map(d => {
+    const sw = Math.max(0, (d.weekStart || d.secuencia || 1) - 1);
+    const dA = obtenerDuracionRevA(d, duracionesPorTipo) / 5;
+    const dB = duracionRevision / 5;
+    return { id: d.id, sw, eA: sw + dA, eB: sw + dA + dB, e0: sw + dA + dB + dB };
+  });
+  const fin = ramas.length ? Math.max(...ramas.map(r => r.e0)) : 4;
+  const weeksToShow = Math.max(Math.ceil(fin) + 2, 6);
+
+  // Rampa de avance de un entregable en el instante t (semanas fraccionales)
+  const rampa = (r, t) => {
+    if (t <= r.sw) return 0;
+    if (t <= r.eA) return 70 * (t - r.sw) / ((r.eA - r.sw) || 1);
+    if (t <= r.eB) return 70 + 20 * (t - r.eA) / ((r.eB - r.eA) || 1);
+    if (t <= r.e0) return 90 + 10 * (t - r.eB) / ((r.e0 - r.eB) || 1);
+    return 100;
+  };
+
+  // Proyectada: muestrear en semanas enteras + puntos de quiebre de cada rampa
+  const tsProy = [...new Set([
+    ...Array.from({ length: weeksToShow + 1 }, (_, i) => i),
+    ...ramas.flatMap(r => [r.sw, r.eA, r.eB, r.e0].map(t => Math.round(t * 100) / 100))
+  ])].filter(t => t >= 0 && t <= weeksToShow).sort((a, b) => a - b);
+  const proyectada = tsProy.map(t => ({
+    week: t,
+    value: ramas.reduce((sum, r) => sum + rampa(r, t), 0) / total
+  }));
+
+  // Real: eventos en las fechas efectivas de cada hito
+  const msSemana = 7 * 24 * 60 * 60 * 1000;
+  const semanaActual = Math.max(0, Math.min((new Date() - startDate) / msSemana, weeksToShow));
+  const eventos = [];
+  activos.forEach(d => {
+    const st = getStatus(d);
+    if (!st) return;
+    [['sentRevA', 'sentRevADate', 70], ['sentRevB', 'sentRevBDate', 90], ['sentRev0', 'sentRev0Date', 100]].forEach(([flag, dateKey, nivel]) => {
+      if (!st[flag]) return;
+      const t = st[dateKey]
+        ? Math.max(0, Math.min((parseLocalDate(st[dateKey]) - startDate) / msSemana, semanaActual))
+        : 0;
+      eventos.push({ t: Math.round(t * 100) / 100, id: d.id, nivel });
+    });
+  });
+  eventos.sort((a, b) => a.t - b.t);
+  const nivelPorEnt = {};
+  const real = [{ week: 0, value: 0 }];
+  eventos.forEach(ev => {
+    nivelPorEnt[ev.id] = Math.max(nivelPorEnt[ev.id] || 0, ev.nivel);
+    const suma = Object.keys(nivelPorEnt).reduce((sum, k) => sum + nivelPorEnt[k], 0);
+    real.push({ week: ev.t, value: suma / total });
+  });
+  const avanceReal = real[real.length - 1].value;
+  if (semanaActual > real[real.length - 1].week) {
+    real.push({ week: semanaActual, value: avanceReal });
+  }
+  // Colapsar puntos con la misma semana (conservar el mayor valor)
+  const realLimpia = [];
+  real.forEach(p => {
+    const prev = realLimpia[realLimpia.length - 1];
+    if (prev && Math.abs(prev.week - p.week) < 0.01) prev.value = Math.max(prev.value, p.value);
+    else realLimpia.push({ ...p });
+  });
+
+  // Proyectado interpolado en la posición de HOY
+  const proyectadoHoy = semanaActual >= weeksToShow
+    ? 100
+    : proyectada.reduce((v, p) => (p.week <= semanaActual ? p.value : v), 0);
+
+  return { proyectada, real: realLimpia, weeksToShow, semanaActual, avanceReal, proyectadoHoy };
+};
+
 // Generar path SVG suave con spline monotono cúbico (Fritsch-Carlson)
 const smoothPath = (points) => {
   if (!points || points.length < 2) return '';
@@ -6720,70 +6799,29 @@ ${cotHtml}
                           <h3 className="text-neutral-800 dark:text-neutral-100 text-sm mb-1">Curva S - Avance del Proyecto</h3>
                           <p className="text-neutral-500 dark:text-neutral-400 text-xs mb-3">Comparación avance proyectado vs real</p>
                           {(() => {
-                            // Calcular duración real del proyecto desde entregables
-                            // Usar (sw - 1) porque las barras Gantt arrancan en posición 0-based
-                            const deliverableEndWeeks = deliverables
-                              .filter(d => !d.frozen)
-                              .map(d => {
-                                const sw = d.weekStart || d.secuencia || 1;
-                                const dA = obtenerDuracionRevA(d, duracionesPorTipo);
-                                const totalDays = dA + duracionRevision + duracionRevision;
-                                return (sw - 1) + totalDays / 5;
-                              });
-                            const maxEndWeek = deliverableEndWeeks.length > 0 ? Math.max(...deliverableEndWeeks) : 10;
-                            const weeksToShow = Math.max(Math.ceil(maxEndWeek) + 2, 6);
+                            // Curva S con modelo de VALOR GANADO (rampas 70/20/10 por entregable),
+                            // alineada con la convención de semanas de la carta Gantt
+                            const startDate = parseLocalDate(dashboardStartDate);
+                            const curva = construirCurvaS({
+                              entregables: deliverables,
+                              getStatus: (d) => d.status,
+                              duracionesPorTipo,
+                              duracionRevision,
+                              startDate
+                            });
+                            const projectedData = curva.proyectada;
+                            const realData = curva.real;
+                            const weeksToShow = curva.weeksToShow;
                             const chartWidth = 550;
                             const chartHeight = 150;
                             const padding = { top: 20, right: 70, bottom: 30, left: 35 };
 
-                            // Curva proyectada basada en entregables reales (Valor Ganado)
-                            // Incluir puntos fraccionarios exactos donde termina cada entregable
-                            // para que la curva suba en el mismo punto que la barra del Gantt
-                            const totalDeliverables = deliverableEndWeeks.length || 1;
-                            const integerWeeks = Array.from({ length: weeksToShow + 1 }, (_, i) => i);
-                            const allPoints = [...new Set([...integerWeeks, ...deliverableEndWeeks])].sort((a, b) => a - b).filter(w => w <= weeksToShow);
-                            const projectedData = allPoints.map(w => {
-                              const completedByWeek = deliverableEndWeeks.filter(ew => ew <= w).length;
-                              return { week: w, value: (completedByWeek / totalDeliverables) * 100 };
-                            });
-                            
-                            // Calcular semanas del año (continuidad anual)
-                            const startDate = parseLocalDate(dashboardStartDate);
-                            const today = new Date();
-                            const startWeekOfYear = getWeekOfYear(startDate); // Semana del año en que inició el proyecto
-                            const currentWeekOfYearValue = getCurrentWeekOfYear(); // Semana actual del año
+                            // Semanas del año (continuidad anual)
+                            const startWeekOfYear = getWeekOfYear(startDate);
+                            const currentWeekOfYearValue = getCurrentWeekOfYear();
 
-                            // Semana relativa al proyecto (para cálculos internos)
-                            const diffTime = today - startDate;
-                            const projectWeek = Math.max(1, Math.floor(diffTime / (7 * 24 * 60 * 60 * 1000)));
-
-                            // La posición en el gráfico es relativa al proyecto
-                            const currentWeek = projectWeek;
-
-                            // Calcular avance real ponderado por entregable
-                            // Inicio=0%, RevA=70%, RevB=90%, Rev0/P=100%, promedio global
-                            const realData = [];
-                            const totalEntregables = stats.total || deliverables.length || 1;
-                            for (let w = 0; w <= Math.min(currentWeek, weeksToShow); w++) {
-                              const weekDate = new Date(startDate.getTime() + w * 7 * 24 * 60 * 60 * 1000);
-                              let sumProgress = 0;
-                              deliverables.filter(d => !d.frozen).forEach(d => {
-                                const s = d.status;
-                                if (!s) return;
-                                // Determinar el mayor hito alcanzado hasta esta semana
-                                let progress = 0;
-                                if (s.sentRev0 && s.sentRev0Date && parseLocalDate(s.sentRev0Date) <= weekDate) { progress = 100; }
-                                else if (s.sentRevB && s.sentRevBDate && parseLocalDate(s.sentRevBDate) <= weekDate) { progress = 90; }
-                                else if (s.sentRevA && s.sentRevADate && parseLocalDate(s.sentRevADate) <= weekDate) { progress = 70; }
-                                else if (s.sentRev0 && !s.sentRev0Date) { progress = 100; }
-                                else if (s.sentRevB && !s.sentRevBDate) { progress = 90; }
-                                else if (s.sentRevA && !s.sentRevADate) { progress = 70; }
-                                // sentIniciado = 0% (solo indica que comenzó, no hay avance entregable)
-                                sumProgress += progress;
-                              });
-                              const avgProgress = sumProgress / totalEntregables;
-                              realData.push({ week: w, value: avgProgress });
-                            }
+                            // Posición REAL de hoy (fraccional — ya no se fuerza a semana 1)
+                            const currentWeek = curva.semanaActual;
 
                             // Escalas
                             const xScale = (w) => padding.left + (w / weeksToShow) * (chartWidth - padding.left - padding.right);
@@ -6796,11 +6834,9 @@ ${cotHtml}
                             const realPoints = realData.map(p => ({ x: xScale(p.week), y: yScale(p.value) }));
                             const realPath = realPoints.length > 1 ? smoothPath(realPoints) : null;
                             
-                            // Valores para mostrar
-                            const projectedAtCurrentWeek = currentWeek <= weeksToShow 
-                              ? projectedData.find(p => p.week === currentWeek)?.value || 0 
-                              : 100;
-                            const realFinal = realData.length > 0 ? realData[realData.length - 1].value : 0;
+                            // Valores para mostrar (interpolados a la posición real de HOY)
+                            const projectedAtCurrentWeek = curva.proyectadoHoy;
+                            const realFinal = curva.avanceReal;
                             const difference = realFinal - projectedAtCurrentWeek;
                             
                             return (
@@ -8438,49 +8474,15 @@ tr { page-break-inside: avoid; }
                   const startDate = parseLocalDate(dashboardStartDate);
                   const startWeekOfYear = getWeekOfYear(startDate);
 
-                  // Calcular duración real del proyecto desde entregables
-                  // Usar (sw - 1) porque las barras Gantt arrancan en posición 0-based
-                  const deliverableEndWeeksImpr = entregablesImpr
-                    .filter(d => !d.frozen)
-                    .map(d => {
-                      const sw = d.weekStart || d.secuencia || 1;
-                      const dA = obtenerDuracionRevA(d, duracionesPorTipo);
-                      const totalDays = dA + duracionRevision + duracionRevision;
-                      return (sw - 1) + totalDays / 5;
-                    });
-                  const maxEndWeekImpr = deliverableEndWeeksImpr.length > 0 ? Math.max(...deliverableEndWeeksImpr) : 10;
-                  const weeksToShow = Math.max(Math.ceil(maxEndWeekImpr) + 2, 6);
-
-                  // Curva programada: incluir puntos fraccionarios exactos de fin de entregable
-                  const intWeeks = Array.from({ length: weeksToShow + 1 }, (_, i) => i);
-                  const allProgPoints = [...new Set([...intWeeks, ...deliverableEndWeeksImpr])].sort((a, b) => a - b).filter(w => w <= weeksToShow);
-                  const progPct = allProgPoints.map(w => {
-                    const acum = deliverableEndWeeksImpr.filter(ew => ew <= w).length;
-                    return totalEntregables > 0 ? (acum / totalEntregables * 100) : 0;
+                  // Curva S (impresión) — mismo modelo de valor ganado que en pantalla
+                  const curvaImpr = construirCurvaS({
+                    entregables: entregablesImpr,
+                    getStatus: (d) => statusData[getStatusKey(d)],
+                    duracionesPorTipo,
+                    duracionRevision,
+                    startDate
                   });
-
-                  // Curva real ponderada: inicio=0%, RevA=70%, RevB=90%, Rev0/P=100%
-                  // Se corta en la semana actual (igual que en pantalla) — fix M2
-                  const semanaActualImpr = Math.min(Math.max(Math.round((new Date() - startDate) / (7 * 24 * 60 * 60 * 1000)), 0), weeksToShow);
-                  const realPct = [];
-                  for (let w = 0; w <= semanaActualImpr; w++) {
-                    const weekDate = addWeeks(startDate, w);
-                    let sumProgress = 0;
-                    entregablesImpr.forEach(d => {
-                      if (d.frozen) return;
-                      const status = statusData[getStatusKey(d)];
-                      if (!status) return;
-                      let progress = 0;
-                      if (status.sentRev0 && status.sentRev0Date && parseLocalDate(status.sentRev0Date) <= weekDate) { progress = 100; }
-                      else if (status.sentRevB && status.sentRevBDate && parseLocalDate(status.sentRevBDate) <= weekDate) { progress = 90; }
-                      else if (status.sentRevA && status.sentRevADate && parseLocalDate(status.sentRevADate) <= weekDate) { progress = 70; }
-                      else if (status.sentRev0 && !status.sentRev0Date) { progress = 100; }
-                      else if (status.sentRevB && !status.sentRevBDate) { progress = 90; }
-                      else if (status.sentRevA && !status.sentRevADate) { progress = 70; }
-                      sumProgress += progress;
-                    });
-                    realPct.push(totalEntregables > 0 ? (sumProgress / totalEntregables) : 0);
-                  }
+                  const weeksToShow = curvaImpr.weeksToShow;
 
                   // SVG dimensions
                   const svgW = 680;
@@ -8495,15 +8497,13 @@ tr { page-break-inside: avoid; }
                   const xScale = (i) => padL + (i / weeksToShow) * chartW;
                   const yScale = (v) => padT + chartH - (v / 100) * chartH;
 
-                  const progPoints = progPct.map((v, i) => ({ x: xScale(allProgPoints[i]), y: yScale(v) }));
+                  const progPoints = curvaImpr.proyectada.map(p => ({ x: xScale(p.week), y: yScale(p.value) }));
                   const progPath = smoothPath(progPoints);
-                  const realPoints = realPct.map((v, i) => ({ x: xScale(i), y: yScale(v) }));
+                  const realPoints = curvaImpr.real.map(p => ({ x: xScale(p.week), y: yScale(p.value) }));
                   const realPath = smoothPath(realPoints);
 
-                  // Semana actual relativa al inicio
-                  const today = new Date();
-                  const diffWeeks = Math.round((today - startDate) / (7 * 24 * 60 * 60 * 1000));
-                  const currentWeekIdx = Math.min(Math.max(diffWeeks, 0), weeksToShow);
+                  // Posición real de HOY (fraccional)
+                  const currentWeekIdx = curvaImpr.semanaActual;
 
                   // Stats
                   const statsCompleted = entregablesImpr.filter(d => !d.frozen && statusData[getStatusKey(d)]?.sentRev0).length;
@@ -8602,7 +8602,7 @@ tr { page-break-inside: avoid; }
                       <path d={realPath} fill="none" stroke="#22c55e" strokeWidth="2.5" />
                       {/* Punto actual real */}
                       {currentWeekIdx <= weeksToShow && (
-                        <circle cx={xScale(currentWeekIdx)} cy={yScale(realPct[currentWeekIdx] || 0)} r="3.5" fill="#22c55e" stroke="white" strokeWidth="1.5" />
+                        <circle cx={xScale(currentWeekIdx)} cy={yScale(curvaImpr.avanceReal || 0)} r="3.5" fill="#22c55e" stroke="white" strokeWidth="1.5" />
                       )}
                       {/* Leyenda */}
                       <line x1={svgW - 180} y1={padT + 5} x2={svgW - 160} y2={padT + 5} stroke="#3b82f6" strokeWidth="2" strokeDasharray="5,3" />
