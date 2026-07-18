@@ -2676,7 +2676,8 @@ export default function MatrizIntranet() {
             monto: d.tipo === 'bh' ? (d.bruto ?? '') : (d.neto ?? ''),
             iva: d.tipo === 'bh' ? '' : (d.iva ?? ''),
             dist: [],
-            avisos: d.avisos || []
+            avisos: d.avisos || [],
+            lineasDebug: lineas.slice(0, 30)
           });
         } catch (err) {
           console.error('Error leyendo PDF:', err);
@@ -3486,6 +3487,12 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                           <div className="text-[10px] text-amber-600 space-y-0.5">
                             {d.avisos.map((a, i) => <p key={i}>⚠ {a}</p>)}
                           </div>
+                        )}
+                        {(d.lineasDebug || []).length > 0 && (
+                          <details className="text-[10px] text-neutral-400">
+                            <summary className="cursor-pointer hover:text-neutral-600">ver texto leído del PDF</summary>
+                            <pre className="mt-1 p-2 bg-neutral-100 dark:bg-neutral-800 rounded max-h-40 overflow-auto whitespace-pre-wrap">{d.lineasDebug.join('\n')}</pre>
+                          </details>
                         )}
                         <div className="flex gap-2">
                           <Button onClick={() => confirmarDraft(d)} className="flex-1 !py-1.5 text-xs">

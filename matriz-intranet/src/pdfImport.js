@@ -78,13 +78,31 @@ export const parsearDocumentoTributario = (lineas, rutEmpresa = '') => {
   const emisor = lineaEmisor ? lineaEmisor.slice(0, 60).trim() : null;
   const rutEmisor = ruts[0] || null;
   if (ruts.length < 2) avisos.push('Solo se detectó un RUT en el documento — verifica el tipo y la contraparte');
-  // Receptor: línea "SEÑOR(ES)" (facturas/NC); su RUT suele ser el segundo
+  // Receptor: búsqueda POR LÍNEAS con validación anti-emisor.
+  // Los formatos SII ponen la etiqueta (SEÑOR(ES)/RAZÓN SOCIAL/CLIENTE) y el nombre
+  // puede venir en la misma línea o en la siguiente. El bloque superior del documento
+  // es del EMISOR, así que un candidato similar al emisor se descarta.
+  const limpiarNombre = (t) => String(t || '').replace(/R\.?U\.?T.*$/i, '').replace(/GIRO.*$/i, '').replace(/FECHA.*$/i, '').trim();
+  const nucleo = (t) => String(t || '').toUpperCase().replace(/[^A-ZÑ0-9]/g, '');
+  const pareceEmisor = (t) => {
+    const a = nucleo(t); const b = nucleo(emisor);
+    return a.length > 3 && b.length > 3 && (a.includes(b) || b.includes(a));
+  };
+  const esNombreValido = (t) => t && t.length >= 3 && /[A-ZÁÉÍÓÚÑa-z]{3,}/.test(t) && !pareceEmisor(t) && !/ELECTRONIC|FACTURA|BOLETA|NOTA\s+DE/i.test(t);
+  const ETIQ_RECEPTOR = /(?:SE[NÑ]OR(?:\(ES\)|ES)?|RAZ[OÓ]N\s+SOCIAL|\bCLIENTE\b|\bSRES?\b)\s*\.?:?\s*(.*)$/i;
   let receptor = null;
-  m = texto.match(/SE[NÑ]OR(?:\(ES\)|ES)?\s*:?\s*([^\n]{3,60})/i) ||
-      texto.match(/RAZ[OÓ]N\s+SOCIAL\s*:?\s*([^\n]{3,60})/i) ||
-      texto.match(/\bCLIENTE\s*:?\s*([^\n]{3,60})/i) ||
-      texto.match(/\bSRES?\.?\s*:?\s*([^\n]{3,60})/i);
-  if (m) receptor = m[1].replace(/R\.?U\.?T.*$/i, '').replace(/GIRO.*$/i, '').trim();
+  for (let i = 0; i < lineas.length && !receptor; i++) {
+    const mm = lineas[i].match(ETIQ_RECEPTOR);
+    if (!mm) continue;
+    // candidato en la misma línea…
+    let cand = limpiarNombre(mm[1]);
+    if (esNombreValido(cand)) { receptor = cand.slice(0, 60); break; }
+    // …o en las 2 líneas siguientes
+    for (let j = 1; j <= 2 && i + j < lineas.length; j++) {
+      cand = limpiarNombre(lineas[i + j]);
+      if (esNombreValido(cand)) { receptor = cand.slice(0, 60); break; }
+    }
+  }
   // Receptor: primer RUT distinto del emisor (el RUT del emisor suele repetirse en el cuerpo)
   const rutReceptor = ruts.find(r => r.replace(/[.\s]/g, '') !== String(rutEmisor || '').replace(/[.\s]/g, '')) || null;
 
@@ -148,12 +166,12 @@ export const parsearDocumentoTributario = (lineas, rutEmpresa = '') => {
     if (esNC) {
       tipo = 'nc';
       afecta = emiteAfor ? 'venta' : 'compra'; // NC emitida resta ventas; recibida resta compras
-      tercero = emiteAfor ? receptor : emisor;
+      tercero = emiteAfor ? (receptor || null) : emisor;
       if (!tercero) avisos.push('No se detectó la contraparte de la NC — complétala');
     } else if (emiteAfor) {
       tipo = 'venta';
-      tercero = receptor;
-      if (!tercero) avisos.push('No se detectó el cliente — complétalo');
+      tercero = receptor || null; // NUNCA el emisor: en una venta el emisor eres tú
+      if (!tercero) avisos.push('No se detectó el cliente en el documento — escríbelo antes de confirmar');
     } else {
       tipo = 'compra';
       tercero = emisor;
