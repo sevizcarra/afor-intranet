@@ -2408,6 +2408,7 @@ export default function MatrizIntranet() {
     const [finAnio, setFinAnio] = useState(() => new Date().getFullYear());
     // Formulario de movimientos (BH / compras / ventas)
     const [movTipo, setMovTipo] = useState('bh');
+    const [movAfecta, setMovAfecta] = useState('venta'); // para NC: venta (emitida) | compra (recibida)
     const [movFecha, setMovFecha] = useState(() => hoyLocalStr());
     const [movTercero, setMovTercero] = useState('');
     const [movFolio, setMovFolio] = useState('');
@@ -2637,6 +2638,7 @@ export default function MatrizIntranet() {
         mov.neto = monto;
         mov.iva = movIva !== '' ? (parseFloat(movIva) || 0) : Math.round(monto * 0.19);
         mov.total = mov.neto + mov.iva;
+        if (movTipo === 'nc') mov.afecta = movAfecta;
       }
       const ok = await saveMovimiento(mov);
       setMovGuardando(false);
@@ -2664,8 +2666,12 @@ export default function MatrizIntranet() {
             id: Date.now() + Math.random(),
             archivo: file.name,
             tipo: d.tipo,
+            afecta: d.afecta || 'venta',
             fecha: d.fecha || hoyLocalStr(),
             tercero: d.tercero || '',
+            rutTercero: (d.tipo === 'venta' || (d.tipo === 'nc' && d.afecta === 'venta')) ? (d.rutReceptor || '') : (d.rutEmisor || ''),
+            emisor: d.emisor || '',
+            receptor: d.receptor || '',
             folio: d.folio || '',
             monto: d.tipo === 'bh' ? (d.bruto ?? '') : (d.neto ?? ''),
             iva: d.tipo === 'bh' ? '' : (d.iva ?? ''),
@@ -2712,12 +2718,14 @@ export default function MatrizIntranet() {
         fechaCreacion: new Date().toISOString(),
         creadoPor: currentUser?.nombre || ''
       };
+      if (d.rutTercero) mov.rutTercero = d.rutTercero;
       if (d.tipo === 'bh') {
         mov.bruto = monto;
       } else {
         mov.neto = monto;
         mov.iva = d.iva !== '' ? (parseFloat(d.iva) || 0) : Math.round(monto * 0.19);
         mov.total = mov.neto + mov.iva;
+        if (d.tipo === 'nc') mov.afecta = d.afecta || 'venta';
       }
       const ok = await saveMovimiento(mov);
       if (ok) {
@@ -2735,24 +2743,30 @@ export default function MatrizIntranet() {
       const ventas = movsDelMes('venta', mesStr);
       const compras = movsDelMes('compra', mesStr);
       const bhs = movsDelMes('bh', mesStr);
-      const ventasNetas = ventas.reduce((sum, v) => sum + (v.neto || 0), 0);
-      const debito = ventas.reduce((sum, v) => sum + (v.iva || 0), 0);
-      const credito = compras.reduce((sum, c) => sum + (c.iva || 0), 0);
+      const ncs = movsDelMes('nc', mesStr);
+      const ncVentas = ncs.filter(n => n.afecta === 'venta');
+      const ncCompras = ncs.filter(n => n.afecta === 'compra');
+      const ventasNetas = ventas.reduce((sum, v) => sum + (v.neto || 0), 0) - ncVentas.reduce((sum, n) => sum + (n.neto || 0), 0);
+      const debito = ventas.reduce((sum, v) => sum + (v.iva || 0), 0) - ncVentas.reduce((sum, n) => sum + (n.iva || 0), 0);
+      const credito = compras.reduce((sum, c) => sum + (c.iva || 0), 0) - ncCompras.reduce((sum, n) => sum + (n.iva || 0), 0);
       const ivaDeterminado = debito - credito;
       const ppm = Math.round(ventasNetas * ((parseFloat(finanzasConfig.ppmTasa) || 0) / 100));
       const totalPagar = Math.max(0, ivaDeterminado) + ppm;
       // Referencia de trazabilidad: EDPs marcados facturados/pagados este mes
       const referenciaEDP = ventasEDPDelMes(mesStr);
       const referenciaEDPNeto = referenciaEDP.reduce((sum, v) => sum + v.netoCLP, 0);
-      return { ventas, compras, bhs, ventasNetas, debito, credito, ivaDeterminado, ppm, totalPagar, referenciaEDP, referenciaEDPNeto };
+      return { ventas, compras, bhs, ncVentas, ncCompras, ventasNetas, debito, credito, ivaDeterminado, ppm, totalPagar, referenciaEDP, referenciaEDPNeto };
     };
 
     // Resumen anual (tributario + gestión)
     const calcularAnual = (anio) => {
       const meses = Array.from({ length: 12 }, (_, i) => `${anio}-${String(i + 1).padStart(2, '0')}`);
       const filasAnual = meses.map(mesStr => {
-        const ventas = movsDelMes('venta', mesStr).reduce((sum, v) => sum + (v.neto || 0), 0);
-        const compras = movsDelMes('compra', mesStr).reduce((sum, c) => sum + (c.neto || 0), 0);
+        const ncsM = movsDelMes('nc', mesStr);
+        const ventas = movsDelMes('venta', mesStr).reduce((sum, v) => sum + (v.neto || 0), 0)
+          - ncsM.filter(n => n.afecta === 'venta').reduce((sum, n) => sum + (n.neto || 0), 0);
+        const compras = movsDelMes('compra', mesStr).reduce((sum, c) => sum + (c.neto || 0), 0)
+          - ncsM.filter(n => n.afecta === 'compra').reduce((sum, n) => sum + (n.neto || 0), 0);
         const bh = movsDelMes('bh', mesStr).reduce((sum, b) => sum + (b.bruto || 0), 0);
         const costoHsH = horasRegistradas.filter(h => {
           const mh = h.mesRegistro || (() => { const fx = parseLocalDate(h.fecha); return `${fx.getFullYear()}-${String(fx.getMonth() + 1).padStart(2, '0')}`; })();
@@ -3156,8 +3170,10 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
           const bhsMes = movsDelMes('bh', finMes);
           const comprasMes = movsDelMes('compra', finMes);
           const ventasMes = movsDelMes('venta', finMes);
+          const ncsMes = movsDelMes('nc', finMes);
           const montoBase = parseFloat(movMonto) || 0;
           const sumaDist = movDist.reduce((sum, d) => sum + (parseFloat(d.monto) || 0), 0);
+          const rolDe = (m) => m.tipo === 'bh' ? 'Prof.' : m.tipo === 'compra' ? 'Prov.' : m.tipo === 'venta' ? 'Cliente' : (m.afecta === 'venta' ? 'Cliente' : 'Prov.');
           const seccion = (titulo, lista, esBH) => (
             <div className="mb-4">
               <h3 className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">{titulo} ({lista.length})</h3>
@@ -3169,7 +3185,10 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                     <div key={m._docId} className="flex items-center justify-between gap-3 p-2.5 bg-neutral-50 dark:bg-neutral-800/50 rounded-lg text-sm">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[10px] px-1 py-0.5 bg-neutral-200 dark:bg-neutral-600 text-neutral-600 dark:text-neutral-200 rounded">{rolDe(m)}</span>
                           <span className="text-neutral-800 dark:text-neutral-100 font-medium truncate">{m.tercero}</span>
+                          {m.rutTercero && <span className="text-[10px] font-mono text-neutral-400">{m.rutTercero}</span>}
+                          {m.tipo === 'nc' && <span className="text-[10px] px-1 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-300 rounded">NC {m.afecta === 'venta' ? 'emitida' : 'recibida'}</span>}
                           {m.folio && <span className="text-[10px] font-mono text-neutral-400">N°{m.folio}</span>}
                           <span className="text-[10px] text-neutral-400">{m.fecha}</span>
                         </div>
@@ -3246,15 +3265,25 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                     </div>
                   </div>
                   <div className="flex gap-1 bg-neutral-100 dark:bg-neutral-800 rounded-lg p-1">
-                    {[['bh', 'Boleta Hon.'], ['compra', 'Compra'], ['venta', 'Venta']].map(([id, label]) => (
+                    {[['bh', 'B. Hon.'], ['compra', 'Compra'], ['venta', 'Venta'], ['nc', 'N. Créd.']].map(([id, label]) => (
                       <button key={id} onClick={() => setMovTipo(id)}
                         className={`flex-1 px-2 py-1 rounded text-xs transition-colors ${movTipo === id ? 'bg-orange-600 text-white' : 'text-neutral-500 dark:text-neutral-400'}`}>
                         {label}
                       </button>
                     ))}
                   </div>
+                  {movTipo === 'nc' && (
+                    <div className="flex gap-1 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 rounded-lg p-1">
+                      {[['venta', 'Emitida (resta ventas)'], ['compra', 'Recibida (resta compras)']].map(([id, label]) => (
+                        <button key={id} onClick={() => setMovAfecta(id)}
+                          className={`flex-1 px-2 py-1 rounded text-[11px] transition-colors ${movAfecta === id ? 'bg-red-500 text-white' : 'text-red-600 dark:text-red-400'}`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <Input label="Fecha del documento" type="date" value={movFecha} onChange={e => setMovFecha(e.target.value)} />
-                  <Input label={movTipo === 'bh' ? 'Emisor de la boleta' : movTipo === 'compra' ? 'Proveedor' : 'Cliente'} value={movTercero} onChange={e => setMovTercero(e.target.value)} placeholder="Nombre o razón social" />
+                  <Input label={movTipo === 'bh' ? 'Profesional emisor' : movTipo === 'compra' ? 'Empresa proveedora' : movTipo === 'venta' ? 'Empresa cliente' : movAfecta === 'venta' ? 'Empresa cliente (NC emitida)' : 'Empresa proveedora (NC recibida)'} value={movTercero} onChange={e => setMovTercero(e.target.value)} placeholder="Nombre o razón social" />
                   <div className="grid grid-cols-2 gap-2">
                     <Input label="N° documento" value={movFolio} onChange={e => setMovFolio(e.target.value)} placeholder="Folio" />
                     <Input label={movTipo === 'bh' ? 'Monto bruto $' : 'Monto neto $'} type="number" value={movMonto} onChange={e => setMovMonto(e.target.value)} placeholder="0" />
@@ -3310,12 +3339,22 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                       <div key={d.id} className="p-3 border border-orange-300 dark:border-orange-700 bg-orange-50/50 dark:bg-orange-900/10 rounded-lg space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] font-mono text-neutral-400 truncate">{d.archivo}</span>
-                          <select value={d.tipo} onChange={e => actualizarDraft(d.id, { tipo: e.target.value })}
-                            className="bg-white dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 rounded px-1.5 py-0.5 text-[11px] text-neutral-800 dark:text-neutral-100">
-                            <option value="bh">Boleta Honorarios</option>
-                            <option value="compra">Factura Compra</option>
-                            <option value="venta">Factura Venta</option>
-                          </select>
+                          <div className="flex items-center gap-1">
+                            <select value={d.tipo} onChange={e => actualizarDraft(d.id, { tipo: e.target.value })}
+                              className="bg-white dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 rounded px-1.5 py-0.5 text-[11px] text-neutral-800 dark:text-neutral-100">
+                              <option value="bh">Boleta Honorarios</option>
+                              <option value="compra">Factura Compra</option>
+                              <option value="venta">Factura Venta</option>
+                              <option value="nc">Nota de Crédito</option>
+                            </select>
+                            {d.tipo === 'nc' && (
+                              <select value={d.afecta} onChange={e => actualizarDraft(d.id, { afecta: e.target.value })}
+                                className="bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-700 rounded px-1.5 py-0.5 text-[11px] text-red-700 dark:text-red-300">
+                                <option value="venta">emitida (−ventas)</option>
+                                <option value="compra">recibida (−compras)</option>
+                              </select>
+                            )}
+                          </div>
                         </div>
                         <div className="grid grid-cols-2 gap-1.5">
                           <input type="text" value={d.tercero} placeholder={d.tipo === 'bh' ? 'Emisor' : d.tipo === 'venta' ? 'Cliente' : 'Proveedor'}
@@ -3373,7 +3412,8 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                 )}
                 {seccion('Boletas de honorarios', bhsMes, true)}
                 {seccion('Compras', comprasMes, false)}
-                {seccion('Ventas manuales', ventasMes, false)}
+                {seccion('Facturas de venta', ventasMes, false)}
+                {seccion('Notas de crédito', ncsMes, false)}
                 <div className="mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-700 grid grid-cols-3 gap-2 text-center text-sm">
                   <div><p className="text-[10px] text-neutral-400 uppercase">BH brutas</p><p className="font-bold text-neutral-800 dark:text-neutral-100">{fmtCLP(bhsMes.reduce((sum, m) => sum + (m.bruto || 0), 0))}</p></div>
                   <div><p className="text-[10px] text-neutral-400 uppercase">Compras netas</p><p className="font-bold text-neutral-800 dark:text-neutral-100">{fmtCLP(comprasMes.reduce((sum, m) => sum + (m.neto || 0), 0))}</p></div>
@@ -3426,6 +3466,12 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                           <span className="text-neutral-800 dark:text-neutral-100">{fmtCLP(v.neto)}</span>
                         </div>
                       ))}
+                      {f29.ncVentas.map((n, i) => (
+                        <div key={'ncv' + i} className="flex justify-between text-red-500">
+                          <span>NC {n.folio ? `N°${n.folio} ` : ''}{n.tercero}</span>
+                          <span>−{fmtCLP(n.neto)}</span>
+                        </div>
+                      ))}
                       <div className="flex justify-between pt-1 border-t border-neutral-200 dark:border-neutral-700 font-medium">
                         <span className="text-neutral-800 dark:text-neutral-100">Ventas netas</span>
                         <span className="text-neutral-800 dark:text-neutral-100">{fmtCLP(f29.ventasNetas)}</span>
@@ -3465,6 +3511,12 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                         <div key={i} className="flex justify-between">
                           <span className="text-neutral-600 dark:text-neutral-300">{c.tercero}{c.folio ? ` N°${c.folio}` : ''}</span>
                           <span className="text-neutral-800 dark:text-neutral-100">{fmtCLP(c.neto)} <span className="text-[10px] text-neutral-400">+IVA {fmtCLP(c.iva)}</span></span>
+                        </div>
+                      ))}
+                      {f29.ncCompras.map((n, i) => (
+                        <div key={'ncc' + i} className="flex justify-between text-red-500">
+                          <span>NC {n.folio ? `N°${n.folio} ` : ''}{n.tercero}</span>
+                          <span>−{fmtCLP(n.iva)} IVA</span>
                         </div>
                       ))}
                       <div className="flex justify-between pt-1 border-t border-neutral-200 dark:border-neutral-700 text-green-600 font-medium">

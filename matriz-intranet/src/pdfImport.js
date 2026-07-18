@@ -61,7 +61,8 @@ export const parsearDocumentoTributario = (lineas, rutEmpresa = '') => {
   const norm = (r) => String(r || '').replace(/[.\s]/g, '').toUpperCase();
 
   const esBHE = /BOLETA[S]?\s+DE\s+HONORARIOS/i.test(texto);
-  const esFactura = /FACTURA/i.test(texto);
+  const esNC = /NOTA\s+DE\s+CR[EÉ]DITO/i.test(texto);
+  const esFactura = !esNC && /FACTURA/i.test(texto);
 
   let folio = null;
   let m = texto.match(/N[°ºO]?\s*[:.]?\s*(\d{1,10})/i);
@@ -72,20 +73,28 @@ export const parsearDocumentoTributario = (lineas, rutEmpresa = '') => {
 
   const ruts = [...texto.matchAll(/(\d{1,2}\.?\d{3}\.?\d{3}\s?-\s?[\dkK])/g)].map(x => x[1].replace(/\s/g, ''));
 
+  // Emisor: primera línea "con nombre" del documento; su RUT es el primero que aparece
+  const lineaEmisor = lineas.find(l => /[A-ZÁÉÍÓÚÑ]{3,}/.test(l) && !/BOLETA|HONORARIOS|FACTURA|NOTA\s+DE|ELECTRONIC|SII|R\.?U\.?T|FECHA|N°|Nº|GIRO|CASA\s+MATRIZ/i.test(l));
+  const emisor = lineaEmisor ? lineaEmisor.slice(0, 60).trim() : null;
+  const rutEmisor = ruts[0] || null;
+  // Receptor: línea "SEÑOR(ES)" (facturas/NC); su RUT suele ser el segundo
+  let receptor = null;
+  m = texto.match(/SE[NÑ]OR(?:\(ES\)|ES)?\s*:?\s*([^\n]{3,60})/i);
+  if (m) receptor = m[1].replace(/R\.?U\.?T.*$/i, '').trim();
+  const rutReceptor = ruts[1] || null;
+
   if (esBHE) {
-    const cand = lineas.find(l => /[A-ZÁÉÍÓÚÑ]{3,}/.test(l) && !/BOLETA|HONORARIOS|ELECTRONIC|SII|FECHA|N°|Nº/i.test(l));
-    const tercero = cand ? cand.slice(0, 60).trim() : null;
-    if (!tercero) avisos.push('No se detectó el emisor — complétalo');
+    if (!emisor) avisos.push('No se detectó el profesional emisor — complétalo');
     let bruto = null;
     m = texto.match(/TOTAL\s+HONORARIOS\s*:?\s*\$?\s*([\d.,]+)/i) ||
         texto.match(/MONTO\s+BRUTO\s*:?\s*\$?\s*([\d.,]+)/i) ||
         texto.match(/HONORARIOS\s*:?\s*\$\s*([\d.,]+)/i);
     if (m) bruto = parseMonto(m[1]);
     if (!bruto) avisos.push('No se detectó el monto bruto');
-    return { tipo: 'bh', fecha, tercero, folio, bruto, neto: null, iva: null, total: null, avisos };
+    return { tipo: 'bh', fecha, tercero: emisor, emisor, receptor, rutEmisor, rutReceptor, folio, bruto, neto: null, iva: null, total: null, avisos };
   }
 
-  if (esFactura) {
+  if (esFactura || esNC) {
     let neto = null, iva = null, total = null;
     m = texto.match(/(?:MONTO\s+)?NETO\s*:?\s*\$?\s*([\d.,]+)/i);
     if (m) neto = parseMonto(m[1]);
@@ -118,23 +127,28 @@ export const parsearDocumentoTributario = (lineas, rutEmpresa = '') => {
     if (neto !== null && iva === null) { iva = Math.round(neto * 0.19); avisos.push('IVA estimado al 19% — verifícalo'); }
     if (neto === null) avisos.push('No se detectó el monto neto');
 
-    // Clasificación compra/venta según quién emite (primer RUT del documento)
-    let tipo = 'compra';
-    let tercero = null;
+    // Clasificación según quién emite (RUT del emisor vs RUT de AFOR)
     const propio = norm(rutEmpresa);
-    if (propio && ruts.length && norm(ruts[0]) === propio) {
+    const emiteAfor = !!(propio && rutEmisor && norm(rutEmisor) === propio);
+    if (!propio) avisos.push('Configura el RUT de AFOR para clasificar automáticamente');
+
+    let tipo, afecta = null, tercero;
+    if (esNC) {
+      tipo = 'nc';
+      afecta = emiteAfor ? 'venta' : 'compra'; // NC emitida resta ventas; recibida resta compras
+      tercero = emiteAfor ? receptor : emisor;
+      if (!tercero) avisos.push('No se detectó la contraparte de la NC — complétala');
+    } else if (emiteAfor) {
       tipo = 'venta';
-      m = texto.match(/SE[NÑ]OR(?:\(ES\)|ES)?\s*:?\s*([^\n]{3,60})/i);
-      tercero = m ? m[1].trim() : null;
+      tercero = receptor;
       if (!tercero) avisos.push('No se detectó el cliente — complétalo');
     } else {
-      const cand = lineas.find(l => /[A-ZÁÉÍÓÚÑ]{3,}/.test(l) && !/FACTURA|ELECTRONIC|SII|R\.?U\.?T|FECHA|GIRO|CASA\s+MATRIZ/i.test(l));
-      tercero = cand ? cand.slice(0, 60).trim() : null;
+      tipo = 'compra';
+      tercero = emisor;
       if (!tercero) avisos.push('No se detectó el proveedor — complétalo');
-      if (!propio) avisos.push('Configura el RUT de AFOR para clasificar compra/venta automáticamente');
     }
-    return { tipo, fecha, tercero, folio, bruto: null, neto, iva, total, avisos };
+    return { tipo, afecta, fecha, tercero, emisor, receptor, rutEmisor, rutReceptor, folio, bruto: null, neto, iva, total, avisos };
   }
 
-  return { tipo: 'compra', fecha, tercero: null, folio, bruto: null, neto: null, iva: null, total: null, avisos: ['Tipo de documento no reconocido — completa los datos a mano'] };
+  return { tipo: 'compra', afecta: null, fecha, tercero: null, emisor, receptor, rutEmisor, rutReceptor, folio, bruto: null, neto: null, iva: null, total: null, avisos: ['Tipo de documento no reconocido — completa los datos a mano'] };
 };
