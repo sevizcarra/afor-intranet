@@ -2729,30 +2729,29 @@ export default function MatrizIntranet() {
     };
 
     // F29 simulado del mes seleccionado
+    // El F29 y el balance se construyen SOLO desde documentos cargados (facturas/BH).
+    // Los EDP son trazabilidad de procesos: se muestran como referencia cruzada, sin sumar.
     const calcularF29 = (mesStr) => {
-      const todasEDP = ventasEDPDelMes(mesStr);
-      const ventasEDP = todasEDP.filter(v => !v.excluida);
-      const ventasEDPExcluidas = todasEDP.filter(v => v.excluida);
-      const ventasMan = movsDelMes('venta', mesStr);
+      const ventas = movsDelMes('venta', mesStr);
       const compras = movsDelMes('compra', mesStr);
       const bhs = movsDelMes('bh', mesStr);
-      const ventasEDPNeto = ventasEDP.reduce((sum, v) => sum + v.netoCLP, 0);
-      const ventasManNeto = ventasMan.reduce((sum, v) => sum + (v.neto || 0), 0);
-      const ventasNetas = ventasEDPNeto + ventasManNeto;
-      const debito = Math.round(ventasEDPNeto * 0.19) + ventasMan.reduce((sum, v) => sum + (v.iva || 0), 0);
+      const ventasNetas = ventas.reduce((sum, v) => sum + (v.neto || 0), 0);
+      const debito = ventas.reduce((sum, v) => sum + (v.iva || 0), 0);
       const credito = compras.reduce((sum, c) => sum + (c.iva || 0), 0);
       const ivaDeterminado = debito - credito;
       const ppm = Math.round(ventasNetas * ((parseFloat(finanzasConfig.ppmTasa) || 0) / 100));
       const totalPagar = Math.max(0, ivaDeterminado) + ppm;
-      return { ventasEDP, ventasEDPExcluidas, ventasMan, compras, bhs, ventasNetas, debito, credito, ivaDeterminado, ppm, totalPagar };
+      // Referencia de trazabilidad: EDPs marcados facturados/pagados este mes
+      const referenciaEDP = ventasEDPDelMes(mesStr);
+      const referenciaEDPNeto = referenciaEDP.reduce((sum, v) => sum + v.netoCLP, 0);
+      return { ventas, compras, bhs, ventasNetas, debito, credito, ivaDeterminado, ppm, totalPagar, referenciaEDP, referenciaEDPNeto };
     };
 
     // Resumen anual (tributario + gestión)
     const calcularAnual = (anio) => {
       const meses = Array.from({ length: 12 }, (_, i) => `${anio}-${String(i + 1).padStart(2, '0')}`);
       const filasAnual = meses.map(mesStr => {
-        const ventas = ventasEDPDelMes(mesStr).reduce((sum, v) => sum + v.netoCLP, 0) +
-          movsDelMes('venta', mesStr).reduce((sum, v) => sum + (v.neto || 0), 0);
+        const ventas = movsDelMes('venta', mesStr).reduce((sum, v) => sum + (v.neto || 0), 0);
         const compras = movsDelMes('compra', mesStr).reduce((sum, c) => sum + (c.neto || 0), 0);
         const bh = movsDelMes('bh', mesStr).reduce((sum, b) => sum + (b.bruto || 0), 0);
         const costoHsH = horasRegistradas.filter(h => {
@@ -3411,35 +3410,17 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                     <span className="text-[10px]">(Ley 21.755: 0,125% hasta ene-2028)</span>
                   </div>
                 </div>
-                <p className="text-[11px] text-neutral-400 mt-1">Simulación referencial para cotejar contra el SII — los EDP en UF se convierten con la UF de hoy{ufHoy ? ` ($${ufHoy.toLocaleString('es-CL')})` : ''}.</p>
+                <p className="text-[11px] text-neutral-400 mt-1">El F29 se construye SOLO con documentos cargados en Movimientos. Los EDP son trazabilidad de procesos y aparecen abajo como referencia cruzada (UF de hoy{ufHoy ? `: $${ufHoy.toLocaleString('es-CL')}` : ''}).</p>
               </Card>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <Card className="p-4">
-                  <h3 className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">Ventas del mes (débito fiscal)</h3>
-                  {f29.ventasEDP.length === 0 && f29.ventasMan.length === 0 ? (
-                    <p className="text-sm text-neutral-400">Sin facturas emitidas este mes</p>
+                  <h3 className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">Ventas del mes — facturas cargadas (débito fiscal)</h3>
+                  {f29.ventas.length === 0 ? (
+                    <p className="text-sm text-neutral-400">Sin facturas de venta cargadas este mes — impórtalas en Movimientos</p>
                   ) : (
                     <div className="space-y-1 text-sm">
-                      {f29.ventasEDP.map((v, i) => (
-                        <div key={'e' + i} className="flex justify-between items-center gap-2">
-                          <span className="text-neutral-600 dark:text-neutral-300">EDP {v.proyectoId} ({v.mesEDP}) · emitida {v.fEmision}</span>
-                          <span className="flex items-center gap-1">
-                            <span className="text-neutral-800 dark:text-neutral-100">{fmtCLP(v.netoCLP)}</span>
-                            <button
-                              onClick={async () => {
-                                const ok = await updateProyectoField(v.proyectoId, { ['finanzas.f29Excluir.' + v.mesEDP]: true });
-                                showNotification(ok ? 'success' : 'error', ok ? `EDP ${v.proyectoId} ${v.mesEDP} excluido del F29` : 'No se pudo excluir');
-                              }}
-                              className="p-0.5 text-neutral-300 hover:text-red-500"
-                              title="Quitar del F29 (p. ej. si ya la registraste como venta manual)"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </span>
-                        </div>
-                      ))}
-                      {f29.ventasMan.map((v, i) => (
+                      {f29.ventas.map((v, i) => (
                         <div key={'m' + i} className="flex justify-between">
                           <span className="text-neutral-600 dark:text-neutral-300">{v.tercero}{v.folio ? ` N°${v.folio}` : ''}</span>
                           <span className="text-neutral-800 dark:text-neutral-100">{fmtCLP(v.neto)}</span>
@@ -3454,27 +3435,23 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                       </div>
                     </div>
                   )}
-                  {f29.ventasEDPExcluidas.length > 0 && (
+                  {f29.referenciaEDP.length > 0 && (
                     <div className="mt-2 pt-2 border-t border-dashed border-neutral-200 dark:border-neutral-700">
-                      <p className="text-[10px] text-neutral-400 uppercase mb-1">Excluidas del F29</p>
-                      {f29.ventasEDPExcluidas.map((v, i) => (
-                        <div key={'x' + i} className="flex justify-between items-center text-xs text-neutral-400 line-through">
-                          <span>EDP {v.proyectoId} ({v.mesEDP})</span>
-                          <span className="flex items-center gap-1">
-                            {fmtCLP(v.netoCLP)}
-                            <button
-                              onClick={async () => {
-                                const ok = await updateProyectoField(v.proyectoId, { ['finanzas.f29Excluir.' + v.mesEDP]: false });
-                                showNotification(ok ? 'success' : 'error', ok ? 'Restaurada al F29' : 'No se pudo restaurar');
-                              }}
-                              className="no-underline text-orange-500 hover:text-orange-600 ml-1"
-                              title="Volver a incluir en el F29"
-                            >
-                              restaurar
-                            </button>
-                          </span>
-                        </div>
-                      ))}
+                      <p className="text-[10px] text-neutral-400 uppercase mb-1">Referencia de trazabilidad (no suma al F29)</p>
+                      {f29.referenciaEDP.map((v, i) => {
+                        const respaldada = f29.ventas.some(m => Math.abs((m.neto || 0) - v.netoCLP) <= Math.max(2000, v.netoCLP * 0.02));
+                        return (
+                          <div key={'r' + i} className="flex justify-between items-center text-xs text-neutral-400">
+                            <span>EDP {v.proyectoId} ({v.mesEDP}) · {v.fEmision}</span>
+                            <span className="flex items-center gap-1.5">
+                              ≈{fmtCLP(v.netoCLP)}
+                              {respaldada
+                                ? <span className="text-green-500" title="Existe una factura cargada por un monto similar">✓ con factura</span>
+                                : <span className="text-amber-500" title="No se encontró factura cargada por un monto similar">⚠ sin factura</span>}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </Card>
