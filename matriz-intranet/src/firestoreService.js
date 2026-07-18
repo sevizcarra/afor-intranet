@@ -574,6 +574,8 @@ export const exportFullBackup = async () => {
       getDoc(doc(db, COLLECTIONS.CONFIG, 'duraciones')),
       getDocs(collection(db, COLLECTIONS.USUARIOS))
     ]);
+    const movimientosSnap = await getDocs(collection(db, COLLECTIONS.MOVIMIENTOS));
+    const finConfigSnap = await getDoc(doc(db, COLLECTIONS.CONFIG, 'finanzas'));
 
     const backup = {
       _meta: {
@@ -596,7 +598,9 @@ export const exportFullBackup = async () => {
         tarifas: tarifasDoc.exists() ? tarifasDoc.data() : null,
         recetas: recetasDoc.exists() ? recetasDoc.data() : null,
         duraciones: duracionesDoc.exists() ? duracionesDoc.data() : null,
+        finanzas: finConfigSnap.exists() ? finConfigSnap.data() : null,
       },
+      movimientos: movimientosSnap.docs.map(d => ({ _docId: d.id, ...d.data() })),
       usuarios: usuarios.docs.map(d => ({ _docId: d.id, ...d.data() })),
     };
 
@@ -625,9 +629,21 @@ export const restoreFromBackup = async (backup) => {
       }
     }
 
-    // Restaurar configuración (tarifas, recetas, duraciones)
+    // Restaurar movimientos financieros
+    if (backup.movimientos && backup.movimientos.length > 0) {
+      for (const m of backup.movimientos) {
+        const { _docId, ...data } = m;
+        if (_docId) {
+          await setDoc(doc(db, COLLECTIONS.MOVIMIENTOS, _docId), data);
+        } else {
+          await addDoc(collection(db, COLLECTIONS.MOVIMIENTOS), data);
+        }
+      }
+    }
+
+    // Restaurar configuración (tarifas, recetas, duraciones, finanzas)
     if (backup.config) {
-      for (const key of ['tarifas', 'recetas', 'duraciones']) {
+      for (const key of ['tarifas', 'recetas', 'duraciones', 'finanzas']) {
         if (backup.config[key]) {
           await setDoc(doc(db, COLLECTIONS.CONFIG, key), backup.config[key]);
           restored.config++;
