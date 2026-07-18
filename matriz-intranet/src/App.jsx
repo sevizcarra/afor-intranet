@@ -2826,6 +2826,7 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                             <th className="pb-2 text-right">Neto UF</th>
                             <th className="pb-2 text-right">Neto $</th>
                             <th className="pb-2 text-right">IVA $</th>
+                            <th className="pb-2 text-right">Total $</th>
                             <th className="pb-2 text-right">Disponible $</th>
                             <th className="pb-2 text-center">Estado</th>
                             <th className="pb-2 text-right">Antigüedad</th>
@@ -2845,6 +2846,7 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                                 <td className="py-2 text-right font-medium text-neutral-800 dark:text-neutral-100">{neto.toFixed(1)}</td>
                                 <td className="py-2 text-right text-neutral-700 dark:text-neutral-200">{ufHoy ? `$${clp(neto)}` : '—'}</td>
                                 <td className="py-2 text-right text-amber-600">{ufHoy ? `$${clp(neto * ivaPctMes / 100)}` : '—'}</td>
+                                <td className="py-2 text-right font-bold text-neutral-800 dark:text-neutral-100" title="Monto a depositar por el cliente (neto + IVA)">{ufHoy ? `$${clp(neto * (1 + ivaPctMes / 100))}` : '—'}</td>
                                 <td className={`py-2 text-right font-medium ${estadoMes === 'pagado' ? 'text-green-600' : 'text-neutral-400'}`}>
                                   {estadoMes === 'pagado' ? (ufHoy ? `$${clp(neto)}` : '—') : '—'}
                                 </td>
@@ -2891,6 +2893,7 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                                 <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">{totNetoUF.toFixed(1)}</td>
                                 <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">${clp(totNetoUF)}</td>
                                 <td className="py-2 text-right text-amber-600" title="IVA a reservar para el SII">${clp(totIva)}</td>
+                                <td className="py-2 text-right font-bold text-neutral-800 dark:text-neutral-100" title="Total a depositar por el cliente">${clp(totNetoUF * 1.19)}</td>
                                 <td className="py-2 text-right text-green-600" title="Cobrado y libre de IVA">${clp(totDisponible)}</td>
                                 <td colSpan={2}></td>
                               </tr>
