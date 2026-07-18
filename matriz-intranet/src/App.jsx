@@ -2824,7 +2824,9 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                           <tr className="text-left text-neutral-500 dark:text-neutral-400 text-xs border-b border-neutral-200 dark:border-neutral-600">
                             <th className="pb-2">Mes (EDP)</th>
                             <th className="pb-2 text-right">Neto UF</th>
-                            <th className="pb-2 text-right">c/IVA CLP</th>
+                            <th className="pb-2 text-right">Neto $</th>
+                            <th className="pb-2 text-right">IVA $</th>
+                            <th className="pb-2 text-right">Disponible $</th>
                             <th className="pb-2 text-center">Estado</th>
                             <th className="pb-2 text-right">Antigüedad</th>
                           </tr>
@@ -2832,6 +2834,8 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                         <tbody>
                           {Object.entries(fin.mesesNeto).map(([mes, neto]) => {
                             const estadoMes = fin.estados[mes] || 'borrador';
+                            const ecMes = (p.edpCond || {})[mes];
+                            const ivaPctMes = ecMes && ecMes.aplicar && ecMes.iva !== null && ecMes.iva !== undefined ? (Number(ecMes.iva) || 19) : 19;
                             const info = ESTADOS_EDP_FIN.find(x => x.id === estadoMes) || ESTADOS_EDP_FIN[0];
                             return (
                               <tr key={mes} className="border-b border-neutral-100 dark:border-neutral-700">
@@ -2839,7 +2843,11 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                                   {parseLocalDate(mes).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })}
                                 </td>
                                 <td className="py-2 text-right font-medium text-neutral-800 dark:text-neutral-100">{neto.toFixed(1)}</td>
-                                <td className="py-2 text-right text-neutral-500 dark:text-neutral-400">{ufHoy ? `$${clp(neto * 1.19)}` : '—'}</td>
+                                <td className="py-2 text-right text-neutral-700 dark:text-neutral-200">{ufHoy ? `$${clp(neto)}` : '—'}</td>
+                                <td className="py-2 text-right text-amber-600">{ufHoy ? `$${clp(neto * ivaPctMes / 100)}` : '—'}</td>
+                                <td className={`py-2 text-right font-medium ${estadoMes === 'pagado' ? 'text-green-600' : 'text-neutral-400'}`}>
+                                  {estadoMes === 'pagado' ? (ufHoy ? `$${clp(neto)}` : '—') : '—'}
+                                </td>
                                 <td className="py-2 text-center">
                                   <select
                                     value={estadoMes}
@@ -2872,6 +2880,23 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                             );
                           })}
                         </tbody>
+                        {ufHoy && (() => {
+                          const totNetoUF = Object.values(fin.mesesNeto).reduce((sum, v) => sum + v, 0);
+                          const totIva = totNetoUF * 0.19;
+                          const totDisponible = Object.entries(fin.mesesNeto).reduce((sum, [mes, v]) => sum + ((fin.estados[mes] === 'pagado') ? v : 0), 0);
+                          return (
+                            <tfoot>
+                              <tr className="border-t-2 border-neutral-300 dark:border-neutral-600 font-medium text-sm">
+                                <td className="py-2 text-neutral-500 dark:text-neutral-400">Totales</td>
+                                <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">{totNetoUF.toFixed(1)}</td>
+                                <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">${clp(totNetoUF)}</td>
+                                <td className="py-2 text-right text-amber-600" title="IVA a reservar para el SII">${clp(totIva)}</td>
+                                <td className="py-2 text-right text-green-600" title="Cobrado y libre de IVA">${clp(totDisponible)}</td>
+                                <td colSpan={2}></td>
+                              </tr>
+                            </tfoot>
+                          );
+                        })()}
                       </table>
                     </div>
                   )}
