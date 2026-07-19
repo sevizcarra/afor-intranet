@@ -58,7 +58,7 @@ export const extraerLineasPDF = async (file) => {
 export const parsearDocumentoTributario = (lineas, rutEmpresa = '') => {
   const texto = lineas.join('\n');
   const avisos = [];
-  const norm = (r) => String(r || '').replace(/[.\s]/g, '').toUpperCase();
+  const norm = (r) => String(r || '').toUpperCase().replace(/[^0-9K]/g, '');
 
   const esBHE = /BOLETA[S]?\s+DE\s+HONORARIOS/i.test(texto);
   const esNC = /NOTA\s+DE\s+CR[EÉ]DITO/i.test(texto);
