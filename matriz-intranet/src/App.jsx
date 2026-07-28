@@ -268,6 +268,15 @@ const getRevFinalLabel = (fase) => {
   return 'REV_0'; // FEL3, EXE, o sin definir
 };
 
+// Etiqueta para MOSTRAR una revisión guardada (internamente siempre se guarda REV_0 / '0')
+const labelRevision = (rev, fase) => {
+  if (rev === 'REV_0' || rev === '0') {
+    const fin = getRevFinalLabel(fase);
+    return rev === '0' ? fin.replace('REV_', '') : fin;
+  }
+  return rev;
+};
+
 // Calcular porcentaje de avance individual de un entregable
 const getDeliverableProgress = (status) => {
   if (!status) return 0;
@@ -4054,7 +4063,7 @@ tfoot td { font-weight: bold; background: #f5f5f5; } .nota { color: #999; font-s
           subHrs += hrs; subCosto += costo;
           const proy = proyectos.find(p => p.id === h.proyectoId);
           const nombreProy = proy ? `${h.proyectoId} — ${proy.nombre}` : (h.proyectoId || '-');
-          return `<tr><td>${nombreProy}</td><td style="text-align:center">${h.tipo || '-'}</td><td style="text-align:center">${h.revision || '—'}</td><td>${h.entregable || '-'}</td><td style="text-align:center">${h.semana ? 'S' + h.semana : '-'}</td><td style="text-align:right">${hrs.toFixed(1)}</td><td style="text-align:right">${costo.toFixed(2)}</td></tr>`;
+          return `<tr><td>${nombreProy}</td><td style="text-align:center">${h.tipo || '-'}</td><td style="text-align:center">${h.revision ? labelRevision(h.revision, proy?.fase) : '—'}</td><td>${h.entregable || '-'}</td><td style="text-align:center">${h.semana ? 'S' + h.semana : '-'}</td><td style="text-align:right">${hrs.toFixed(1)}</td><td style="text-align:right">${costo.toFixed(2)}</td></tr>`;
         }).join('');
         totalGeneralHrs += subHrs; totalGeneralCosto += subCosto;
         cuerpo += `<h3>${col ? col.nombre : 'Profesional ' + pid}${col && col.cargo ? ' · ' + col.cargo : ''} <span class="tarifa">(tarifa: ${tarifaCosto.toFixed(2)} UF/h)</span></h3>` +
@@ -4335,10 +4344,10 @@ ${cuerpo}
                               >
                                 <option value="REV_A">REV_A</option>
                                 <option value="REV_B">REV_B</option>
-                                <option value="REV_0">REV_0</option>
+                                <option value="REV_0">{getRevFinalLabel(proyectos.find(p => p.id === h.proyectoId)?.fase)}</option>
                               </select>
                             ) : (
-                              <Badge>{h.revision}</Badge>
+                              <Badge>{labelRevision(h.revision, proyectos.find(p => p.id === h.proyectoId)?.fase)}</Badge>
                             )}
                           </td>
                           <td className="p-2 text-center text-neutral-500 dark:text-neutral-400">
@@ -5301,7 +5310,7 @@ ${cuerpo}
         e.tipo,
         e.codigo,
         e.nombre,
-        e.esHsH ? '-' : 'REV_' + e.revision,
+        e.esHsH ? '-' : 'REV_' + (e.revision === '0' ? getRevFinalLabel(proyectos.find(p => p.id === e.proyectoId)?.fase).replace('REV_', '') : e.revision),
         e.fecha,
         e.valor.toFixed(2),
         e.observacion || ''
@@ -8884,7 +8893,7 @@ tr { page-break-inside: avoid; }
                                                   e.revision === 'B' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' :
                                                   'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300'
                                                 }`}>
-                                                  {e.esHsH ? e.tipo : `REV_${e.revision}`}
+                                                  {e.esHsH ? e.tipo : (e.revision === '0' ? getRevFinalLabel(proyectoActual?.fase) : `REV_${e.revision}`)}
                                                 </span>
                                               </td>
                                               <td className="py-2 text-center text-neutral-600 dark:text-neutral-300">{e.fecha}</td>
@@ -9036,7 +9045,7 @@ tr { page-break-inside: avoid; }
                                             <td className="border border-neutral-300 px-1.5 py-0.5 text-center">{e.tipo}</td>
                                             <td className="border border-neutral-300 px-1.5 py-0.5 font-mono">{e.codigo}</td>
                                             <td className="border border-neutral-300 px-1.5 py-0.5">{e.nombre}</td>
-                                            <td className="border border-neutral-300 px-1.5 py-0.5 text-center">{e.esHsH ? '-' : `REV_${e.revision}`}</td>
+                                            <td className="border border-neutral-300 px-1.5 py-0.5 text-center">{e.esHsH ? '-' : (e.revision === '0' ? getRevFinalLabel(proyectoActual?.fase) : `REV_${e.revision}`)}</td>
                                             <td className="border border-neutral-300 px-1.5 py-0.5 text-center">{e.fecha}</td>
                                             <td className="border border-neutral-300 px-1.5 py-0.5 text-right font-medium">{e.valor.toFixed(2)}</td>
                                           </tr>
