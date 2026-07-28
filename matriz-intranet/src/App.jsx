@@ -5242,6 +5242,36 @@ ${cuerpo}
     return entregablesDelMes;
   };
 
+  // Acumulado de facturación por HITOS REALES (fechas de envío) ANTES del mes seleccionado.
+  // El neto de cada mes anterior usa las condiciones (edpCond) guardadas de ESE mes.
+  const calcularAcumuladoEDP = (projectIds) => {
+    const [yy, mm] = selectedMonth.split('-').map(Number);
+    const inicioMes = new Date(yy, mm - 1, 1);
+    let totalContrato = 0, antBruto = 0, antNeto = 0;
+    proyectos.forEach(proyecto => {
+      if (projectIds !== 'all' && !projectIds.includes(proyecto.id)) return;
+      const conds = proyecto.edpCond || {};
+      (proyecto.entregables || []).forEach(ent => {
+        if (ent.frozen) return;
+        totalContrato += (ent.valorRevA || 0) + (ent.valorRevB || 0) + (ent.valorRev0 || 0);
+        const st = statusData[`${proyecto.id}_${ent.id}`];
+        if (!st) return;
+        [['sentRevADate', 'valorRevA'], ['sentRevBDate', 'valorRevB'], ['sentRev0Date', 'valorRev0']].forEach(([dk, vk]) => {
+          const val = ent[vk] || 0;
+          if (!st[dk] || val <= 0) return;
+          const f = parseLocalDate(st[dk]);
+          if (f >= inicioMes) return;
+          antBruto += val;
+          const mesKey = `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}`;
+          const c = conds[mesKey];
+          const factor = (c && c.aplicar) ? (c.simplificado ? 0.8 : 1) * (1 - (Number(c.descuento) || 0) / 100) : 1;
+          antNeto += val * factor;
+        });
+      });
+    });
+    return { totalContrato, antBruto, antNeto };
+  };
+
   const agruparPorProyecto = (entregables) => {
     const grupos = {};
     entregables.forEach(e => {
@@ -5278,25 +5308,23 @@ ${cuerpo}
     const filterProyecto = overrideProyectoEDP !== undefined ? overrideProyectoEDP : selectedProyectoEDP;
     const mesNombre = parseLocalDate(selectedMonth).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
 
-    let totalProyectoHsH = 0;
-    let mesAnteriorHsH = 0;
     const mesEnCursoHsH = entregables.reduce((s, e) => s + e.valor, 0);
+    const mesEntBrutoXls = entregables.filter(e => !e.esHsH).reduce((s, e) => s + e.valor, 0);
 
-    const porProyectoExcel = agruparPorProyecto(entregables);
-    Object.entries(porProyectoExcel).forEach(([pid, pdata]) => {
-      const proyecto = proyectos.find(p => p.id === pid);
-      if (proyecto && proyecto.entregables) {
-        proyecto.entregables.forEach(ent => {
-          if (!ent.frozen) {
-            totalProyectoHsH += (ent.valorRevA || 0) + (ent.valorRevB || 0) + (ent.valorRev0 || 0);
-            const avanceAnterior = (ent.avanceAnterior || 0) / 100;
-            const valorTotal = (ent.valorRevA || 0) + (ent.valorRevB || 0) + (ent.valorRev0 || 0);
-            mesAnteriorHsH += valorTotal * avanceAnterior;
-          }
-        });
-      }
-    });
-    const totalPendienteHsH = Math.max(0, totalProyectoHsH - mesAnteriorHsH - mesEnCursoHsH);
+    const idsExcel = filterProyecto !== 'all' ? [filterProyecto] : Object.keys(agruparPorProyecto(entregables));
+    const acumXls = calcularAcumuladoEDP(idsExcel);
+    const totalProyectoHsH = acumXls.totalContrato;
+    const mesAnteriorHsH = acumXls.antBruto;
+    const totalPendienteHsH = Math.max(0, totalProyectoHsH - mesAnteriorHsH - mesEntBrutoXls);
+
+    // Condiciones comerciales del mes (solo aplican con proyecto único seleccionado)
+    const condXls = filterProyecto !== 'all' ? (proyectos.find(p => p.id === filterProyecto)?.edpCond?.[selectedMonth]) : null;
+    const factorXls = (condXls && condXls.aplicar) ? (condXls.simplificado ? 0.8 : 1) * (1 - (Number(condXls.descuento) || 0) / 100) : 1;
+    const ivaPctXls = (condXls && condXls.iva !== undefined && condXls.iva !== null) ? (Number(condXls.iva) || 0) : 19;
+    const netoXls = mesEnCursoHsH * factorXls;
+    const ivaXls = netoXls * (ivaPctXls / 100);
+    const totalFacturaXls = netoXls + ivaXls;
+    const saldoNetoXls = totalPendienteHsH * factorXls;
 
     const proyectoSelEDP = filterProyecto !== 'all' ? proyectos.find(p => p.id === filterProyecto) : null;
     const jefeProyectoNombre = proyectoSelEDP?.jefeProyecto || '';
@@ -5326,7 +5354,11 @@ ${cuerpo}
       ['Total Pendiente:', totalPendienteHsH.toFixed(1) + ' HsH'],
       [''],
       ['FACTURACIÓN'],
-      ['HsH Mes en Curso:', mesEnCursoHsH.toFixed(1)],
+      ['Facturado meses anteriores (neto UF):', acumXls.antNeto.toFixed(2)],
+      ['Facturado mes (neto UF):', netoXls.toFixed(2)],
+      ['IVA (' + ivaPctXls + '%):', ivaXls.toFixed(2)],
+      ['TOTAL FACTURA MES (UF):', totalFacturaXls.toFixed(2)],
+      ['Saldo por facturar (neto UF):', saldoNetoXls.toFixed(2)],
       [''],
       [''],
       ['_______________________________', '', '', '_______________________________'],
@@ -8928,16 +8960,36 @@ tr { page-break-inside: avoid; }
                                   </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div className="p-4 bg-white dark:bg-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 text-center">
-                                    <p className="text-neutral-500 dark:text-neutral-400 text-xs mb-1">HsH Mes en Curso</p>
-                                    <p className="text-xl font-bold text-neutral-800 dark:text-neutral-100">{totalGeneral.toFixed(1)}</p>
-                                  </div>
-                                  <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800 text-center">
-                                    <p className="text-orange-600 dark:text-orange-400 text-xs mb-1">Facturación (HsH)</p>
-                                    <p className="text-xl font-bold text-orange-600">{totalGeneral.toFixed(1)}</p>
-                                  </div>
-                                </div>
+                                {(() => {
+                                  const ec = proyectoActual?.edpCond?.[selectedMonth] || {};
+                                  const factor = ec.aplicar ? (ec.simplificado ? 0.8 : 1) * (1 - (Number(ec.descuento) || 0) / 100) : 1;
+                                  const ivaPct = (ec.iva === undefined || ec.iva === null) ? 19 : (Number(ec.iva) || 0);
+                                  const neto = totalGeneral * factor;
+                                  const totalFactura = neto * (1 + ivaPct / 100);
+                                  const acum = calcularAcumuladoEDP([selectedProject]);
+                                  const mesEntBruto = edpData.filter(x => !x.esHsH).reduce((s, x) => s + x.valor, 0);
+                                  const saldoNeto = Math.max(0, acum.totalContrato - acum.antBruto - mesEntBruto) * factor;
+                                  return (
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                      <div className="p-4 bg-white dark:bg-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 text-center">
+                                        <p className="text-neutral-500 dark:text-neutral-400 text-xs mb-1">Fact. meses anteriores (neto)</p>
+                                        <p className="text-xl font-bold text-neutral-800 dark:text-neutral-100">{acum.antNeto.toFixed(2)} UF</p>
+                                      </div>
+                                      <div className="p-4 bg-white dark:bg-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 text-center">
+                                        <p className="text-neutral-500 dark:text-neutral-400 text-xs mb-1">Facturado mes (neto)</p>
+                                        <p className="text-xl font-bold text-neutral-800 dark:text-neutral-100">{neto.toFixed(2)} UF</p>
+                                      </div>
+                                      <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800 text-center">
+                                        <p className="text-orange-600 dark:text-orange-400 text-xs mb-1">Total factura mes (c/IVA {ivaPct}%)</p>
+                                        <p className="text-xl font-bold text-orange-600">{totalFactura.toFixed(2)} UF</p>
+                                      </div>
+                                      <div className="p-4 bg-white dark:bg-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 text-center">
+                                        <p className="text-neutral-500 dark:text-neutral-400 text-xs mb-1">Saldo por facturar (neto)</p>
+                                        <p className="text-xl font-bold text-neutral-800 dark:text-neutral-100">{saldoNeto.toFixed(2)} UF</p>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             )}
                           </Card>
@@ -9058,15 +9110,21 @@ tr { page-break-inside: avoid; }
                                           const fSimp = ec.simplificado ? 0.8 : 1;
                                           const dPct = Number(ec.descuento) || 0;
                                           const ivaPct = (ec.iva === undefined || ec.iva === null) ? 19 : (Number(ec.iva) || 0);
-                                          const mSimp = totalGeneral * (1 - fSimp);
-                                          const mDesc = totalGeneral * fSimp * (dPct / 100);
-                                          const neto = totalGeneral * fSimp * (1 - dPct / 100);
+                                          const fSimpEff = aplicar ? fSimp : 1;
+                                          const dEff = aplicar ? dPct : 0;
+                                          const mSimp = totalGeneral * (1 - fSimpEff);
+                                          const mDesc = totalGeneral * fSimpEff * (dEff / 100);
+                                          const neto = totalGeneral * fSimpEff * (1 - dEff / 100);
                                           const ivaMonto = neto * (ivaPct / 100);
                                           const totalFinal = neto + ivaMonto;
+                                          const acum = calcularAcumuladoEDP([selectedProject]);
+                                          const mesEntBruto = edpData.filter(x => !x.esHsH).reduce((s, x) => s + x.valor, 0);
+                                          const factorMes = fSimpEff * (1 - dEff / 100);
+                                          const saldoNeto = Math.max(0, acum.totalContrato - acum.antBruto - mesEntBruto) * factorMes;
                                           return (
                                             <>
-                                              <tr className={aplicar ? 'font-bold' : 'bg-orange-100 font-bold'}>
-                                                <td colSpan={5} className="border border-neutral-300 px-1.5 py-1 text-right">{aplicar ? 'SUBTOTAL (UF):' : 'TOTAL HsH:'}</td>
+                                              <tr className="font-bold">
+                                                <td colSpan={5} className="border border-neutral-300 px-1.5 py-1 text-right">SUBTOTAL MES (UF):</td>
                                                 <td className="border border-neutral-300 px-1.5 py-1 text-right text-orange-600">{totalGeneral.toFixed(2)}</td>
                                               </tr>
                                               {aplicar && ec.simplificado && (
@@ -9081,58 +9139,64 @@ tr { page-break-inside: avoid; }
                                                   <td className="border border-neutral-300 px-1.5 py-0.5 text-right text-red-700">−{mDesc.toFixed(2)}</td>
                                                 </tr>
                                               )}
-                                              {aplicar && (
-                                                <>
-                                                  <tr className="font-medium">
-                                                    <td colSpan={5} className="border border-neutral-300 px-1.5 py-0.5 text-right">Neto (UF)</td>
-                                                    <td className="border border-neutral-300 px-1.5 py-0.5 text-right">{neto.toFixed(2)}</td>
-                                                  </tr>
-                                                  <tr>
-                                                    <td colSpan={5} className="border border-neutral-300 px-1.5 py-0.5 text-right text-neutral-500">IVA ({ivaPct}%)</td>
-                                                    <td className="border border-neutral-300 px-1.5 py-0.5 text-right text-neutral-500">{ivaMonto.toFixed(2)}</td>
-                                                  </tr>
-                                                  <tr className="bg-orange-100 font-bold">
-                                                    <td colSpan={5} className="border border-neutral-300 px-1.5 py-1 text-right">TOTAL A FACTURAR (UF):</td>
-                                                    <td className="border border-neutral-300 px-1.5 py-1 text-right text-orange-600">{totalFinal.toFixed(2)}</td>
-                                                  </tr>
-                                                </>
-                                              )}
+                                              <tr className="font-medium">
+                                                <td colSpan={5} className="border border-neutral-300 px-1.5 py-0.5 text-right">Facturado mes (neto UF)</td>
+                                                <td className="border border-neutral-300 px-1.5 py-0.5 text-right">{neto.toFixed(2)}</td>
+                                              </tr>
+                                              <tr>
+                                                <td colSpan={5} className="border border-neutral-300 px-1.5 py-0.5 text-right text-neutral-500">IVA ({ivaPct}%)</td>
+                                                <td className="border border-neutral-300 px-1.5 py-0.5 text-right text-neutral-500">{ivaMonto.toFixed(2)}</td>
+                                              </tr>
+                                              <tr className="bg-orange-100 font-bold">
+                                                <td colSpan={5} className="border border-neutral-300 px-1.5 py-1 text-right">TOTAL FACTURA MES (UF):</td>
+                                                <td className="border border-neutral-300 px-1.5 py-1 text-right text-orange-600">{totalFinal.toFixed(2)}</td>
+                                              </tr>
+                                              <tr>
+                                                <td colSpan={5} className="border border-neutral-300 px-1.5 py-0.5 text-right text-neutral-500">Facturado meses anteriores (neto UF)</td>
+                                                <td className="border border-neutral-300 px-1.5 py-0.5 text-right text-neutral-500">{acum.antNeto.toFixed(2)}</td>
+                                              </tr>
+                                              <tr className="font-medium">
+                                                <td colSpan={5} className="border border-neutral-300 px-1.5 py-0.5 text-right">Saldo por facturar (neto UF)</td>
+                                                <td className="border border-neutral-300 px-1.5 py-0.5 text-right">{saldoNeto.toFixed(2)}</td>
+                                              </tr>
                                             </>
                                           );
                                         })()}
                                       </tfoot>
                                     </table>
 
-                                    <div className="mt-3 p-2 bg-neutral-50 border border-neutral-200 rounded">
-                                      <div className="grid grid-cols-2 gap-2 text-[9px]">
-                                        <div className="text-center p-1.5 bg-white rounded border">
-                                          <p className="text-neutral-500 text-[8px]">HsH Mes en Curso</p>
-                                          <p className="font-bold text-neutral-800 text-xs">{totalGeneral.toFixed(1)}</p>
+                                    {(() => {
+                                      const ec = edpCond || {};
+                                      const factor = ec.aplicar ? (ec.simplificado ? 0.8 : 1) * (1 - (Number(ec.descuento) || 0) / 100) : 1;
+                                      const ivaPct = (ec.iva === undefined || ec.iva === null) ? 19 : (Number(ec.iva) || 0);
+                                      const neto = totalGeneral * factor;
+                                      const totalFinal = neto * (1 + ivaPct / 100);
+                                      const acum = calcularAcumuladoEDP([selectedProject]);
+                                      const mesEntBruto = edpData.filter(x => !x.esHsH).reduce((s, x) => s + x.valor, 0);
+                                      const saldoNeto = Math.max(0, acum.totalContrato - acum.antBruto - mesEntBruto) * factor;
+                                      return (
+                                        <div className="mt-3 p-2 bg-neutral-50 border border-neutral-200 rounded">
+                                          <div className="grid grid-cols-4 gap-2 text-[9px]">
+                                            <div className="text-center p-1.5 bg-white rounded border">
+                                              <p className="text-neutral-500 text-[8px]">Fact. meses anteriores (neto)</p>
+                                              <p className="font-bold text-neutral-800 text-xs">{acum.antNeto.toFixed(2)} UF</p>
+                                            </div>
+                                            <div className="text-center p-1.5 bg-white rounded border">
+                                              <p className="text-neutral-500 text-[8px]">Facturado mes (neto)</p>
+                                              <p className="font-bold text-neutral-800 text-xs">{neto.toFixed(2)} UF</p>
+                                            </div>
+                                            <div className="text-center p-1.5 bg-orange-50 rounded border border-orange-200">
+                                              <p className="text-orange-600 text-[8px]">Total factura mes (c/IVA {ivaPct}%)</p>
+                                              <p className="font-bold text-orange-600 text-xs">{totalFinal.toFixed(2)} UF</p>
+                                            </div>
+                                            <div className="text-center p-1.5 bg-white rounded border">
+                                              <p className="text-neutral-500 text-[8px]">Saldo por facturar (neto)</p>
+                                              <p className="font-bold text-neutral-800 text-xs">{saldoNeto.toFixed(2)} UF</p>
+                                            </div>
+                                          </div>
                                         </div>
-                                        <div className="text-center p-1.5 bg-orange-50 rounded border border-orange-200">
-                                          {(() => {
-                                            const ec = edpCond || {};
-                                            if (!ec.aplicar) return (
-                                              <>
-                                                <p className="text-orange-600 text-[8px]">Facturación</p>
-                                                <p className="font-bold text-orange-600 text-sm">{totalGeneral.toFixed(1)} HsH</p>
-                                              </>
-                                            );
-                                            const fSimp = ec.simplificado ? 0.8 : 1;
-                                            const dPct = Number(ec.descuento) || 0;
-                                            const ivaPct = (ec.iva === undefined || ec.iva === null) ? 19 : (Number(ec.iva) || 0);
-                                            const neto = totalGeneral * fSimp * (1 - dPct / 100);
-                                            const totalFinal = neto * (1 + ivaPct / 100);
-                                            return (
-                                              <>
-                                                <p className="text-orange-600 text-[8px]">Facturación (c/IVA)</p>
-                                                <p className="font-bold text-orange-600 text-sm">{totalFinal.toFixed(1)} UF</p>
-                                              </>
-                                            );
-                                          })()}
-                                        </div>
-                                      </div>
-                                    </div>
+                                      );
+                                    })()}
 
                                     <div className="mt-8 pt-4 border-t border-neutral-300">
                                       <div className="grid grid-cols-2 gap-8">
