@@ -2987,11 +2987,76 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
           }), { neto: 0, ivaUF: 0, netoCLP: 0, ivaCLP: 0, totalCLP: 0, dispCLP: 0, pcCLP: 0 });
           const totC = sumar(mesesOrden.flatMap(m => consolidado[m]));
           const colorAvance = (av) => av >= 100 ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300' : av >= 50 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300';
+          const egresosDelMes = (mes, sub) => {
+            const nucleoN = (t) => String(t || '').toUpperCase().replace(/[^A-ZÑ0-9]/g, '');
+            const deshab = finanzasConfig.bhDeshabilitados || {};
+            const bhsReales = movsDelMes('bh', mes);
+            const porProf = {};
+            horasRegistradas.forEach(h => {
+              const mh = h.mesRegistro || (() => { const fx = parseLocalDate(h.fecha); return `${fx.getFullYear()}-${String(fx.getMonth() + 1).padStart(2, '0')}`; })();
+              if (mh !== mes) return;
+              const col = profesionales.find(c => String(c.id) === String(h.profesionalId));
+              if (!col || deshab[String(col.id)] === true) return;
+              const key = String(col.id);
+              if (!porProf[key]) porProf[key] = { col, horas: 0 };
+              porProf[key].horas += parseFloat(h.horas) || 0;
+            });
+            const salidas = Object.values(porProf).filter(x => x.horas > 0).map(({ col, horas }) => {
+              const uf = horas * (parseFloat(col.tarifaInterna) || 0);
+              const reg = bhsReales.find(b => {
+                const a = nucleoN(b.tercero); const c = nucleoN(col.nombre);
+                return a.length > 3 && c.length > 3 && (a.includes(c) || c.includes(a));
+              });
+              const monto = reg ? (reg.bruto || 0) : (ufHoy ? Math.round(uf * ufHoy) : 0);
+              return { col, horas, uf, monto, reg };
+            });
+            const totBH = salidas.reduce((sum, s) => sum + s.monto, 0);
+            const ppmCLP = Math.round(sub.netoCLP * ((parseFloat(finanzasConfig.ppmTasa) || 0) / 100));
+            const reparto = sub.totalCLP - sub.ivaCLP - ppmCLP - totBH;
+            return { salidas, totBH, ppmCLP, reparto };
+          };
+          const imprimirConsolidado = () => {
+            const pw = window.open('', '_blank');
+            if (!pw) { showNotification('error', 'Habilita las ventanas emergentes para poder imprimir'); return; }
+            const nombreMes = (m) => parseLocalDate(m).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
+            const secciones = mesesOrden.map(mes => {
+              const dets = [...consolidado[mes]].sort((a, b) => a.id.localeCompare(b.id));
+              const sub = sumar(dets);
+              const eg = egresosDelMes(mes, sub);
+              const filasP = dets.map(d => `<tr><td><b style="color:#ea580c">${d.id}</b> ${d.nombre}</td><td style="text-align:center">${Math.round(d.avance)}%</td><td style="text-align:right">${d.neto.toFixed(1)}</td><td style="text-align:right">$${d.netoCLP.toLocaleString('es-CL')}</td><td style="text-align:right">$${d.ivaCLP.toLocaleString('es-CL')}</td><td style="text-align:right"><b>$${d.totalCLP.toLocaleString('es-CL')}</b></td><td style="text-align:right;color:#16a34a">${d.dispCLP > 0 ? '$' + d.dispCLP.toLocaleString('es-CL') : '—'}</td><td style="text-align:right;color:#ea580c">${d.pcCLP > 0 ? '$' + d.pcCLP.toLocaleString('es-CL') : '—'}</td><td style="text-align:center;text-transform:capitalize">${d.estado}</td></tr>`).join('');
+              const filaSub = `<tr style="background:#f5f5f5;font-weight:bold"><td style="text-transform:capitalize">${nombreMes(mes)}</td><td></td><td style="text-align:right">${sub.neto.toFixed(1)}</td><td style="text-align:right">$${sub.netoCLP.toLocaleString('es-CL')}</td><td style="text-align:right">$${sub.ivaCLP.toLocaleString('es-CL')}</td><td style="text-align:right">$${sub.totalCLP.toLocaleString('es-CL')}</td><td style="text-align:right;color:#16a34a">${sub.dispCLP > 0 ? '$' + sub.dispCLP.toLocaleString('es-CL') : '—'}</td><td style="text-align:right;color:#ea580c">${sub.pcCLP > 0 ? '$' + sub.pcCLP.toLocaleString('es-CL') : '—'}</td><td></td></tr>`;
+              const filasBH = eg.salidas.map(s => `<tr style="color:#7c3aed"><td colspan="2">− BH ${s.col.nombre} (${s.horas.toFixed(1)} h HsH)</td><td style="text-align:right">−${s.uf.toFixed(1)}</td><td colspan="3" style="text-align:right;color:#dc2626">−$${s.monto.toLocaleString('es-CL')}</td><td colspan="2"></td><td style="text-align:center;font-size:8px">${s.reg ? 'BH registrada' : 'simulada'}</td></tr>`).join('');
+              const filasImp = `<tr style="color:#b45309"><td colspan="2">− IVA por pagar al SII</td><td></td><td colspan="3" style="text-align:right;color:#dc2626">−$${sub.ivaCLP.toLocaleString('es-CL')}</td><td colspan="2"></td><td style="text-align:center;font-size:8px">egreso SII</td></tr>` +
+                `<tr style="color:#b45309"><td colspan="2">− PPM (${finanzasConfig.ppmTasa}% ventas netas)</td><td></td><td colspan="3" style="text-align:right;color:#dc2626">−$${eg.ppmCLP.toLocaleString('es-CL')}</td><td colspan="2"></td><td style="text-align:center;font-size:8px">egreso SII</td></tr>`;
+              const filaReparto = `<tr style="background:#f0fdf4;font-weight:bold"><td colspan="2">= DISPONIBLE PARA REPARTO (total − IVA − PPM − BH, antes de compras)</td><td></td><td colspan="3" style="text-align:right;font-size:11px">$${eg.reparto.toLocaleString('es-CL')}</td><td colspan="2" style="text-align:right;color:#16a34a">50/50: $${Math.round(eg.reparto / 2).toLocaleString('es-CL')} c/u</td><td></td></tr>`;
+              return filasP + filaSub + filasBH + filasImp + filaReparto;
+            }).join('');
+            pw.document.write(`<html><head><title>Consolidado mensual — AFOR</title><style>
+@page { size: letter landscape; margin: 12mm; } body { font-family: 'Segoe UI', system-ui, sans-serif; color: #171717; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #f97316; padding-bottom: 8px; margin-bottom: 14px; }
+h1 { font-size: 16px; margin: 0; } .sub { color: #666; font-size: 10px; margin: 2px 0 0; }
+table { width: 100%; border-collapse: collapse; font-size: 9px; } th { background: #262626; color: white; padding: 4px 6px; text-align: left; } td { border: 1px solid #d4d4d4; padding: 3px 6px; }
+.nota { color: #999; font-size: 8px; margin-top: 12px; border-top: 1px solid #e5e5e5; padding-top: 6px; }
+</style></head><body>
+<div class="header"><div><h1>CONSOLIDADO MENSUAL — TODOS LOS PROYECTOS</h1><p class="sub">FACTURACIÓN, EGRESOS Y DISPONIBLE PARA REPARTO${ufHoy ? ` · UF ${new Date().toLocaleDateString('es-CL')}: $${ufHoy.toLocaleString('es-CL')}` : ''}</p></div><img src="${window.location.origin}/logo-afor.png" style="height:32px"/></div>
+<table><thead><tr><th>Mes / Proyecto</th><th style="text-align:center">Avance</th><th style="text-align:right">Neto UF</th><th style="text-align:right">Neto $</th><th style="text-align:right">IVA $</th><th style="text-align:right">Total $</th><th style="text-align:right">Disponible $</th><th style="text-align:right">Por cobrar $</th><th style="text-align:center">Estado</th></tr></thead>
+<tbody>${secciones}</tbody></table>
+<p class="nota">Disponible = cobrado y libre de IVA. El IVA mostrado es el de las ventas del período — con crédito fiscal por compras, el F29 real puede ser menor. BH "simulada" = calculada desde HsH × tarifa de pago, pendiente del documento SII. Montos en pesos a la UF del día de generación. Documento de gestión interna — no reemplaza la contabilidad oficial.</p>
+<div class="nota" style="display:flex;justify-content:space-between"><span>Generado: ${new Date().toLocaleString('es-CL')}</span><span>AFOR Intranet</span></div>
+</body></html>`);
+            pw.document.close();
+            setTimeout(() => pw.print(), 500);
+          };
           return (
             <Card className="p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-medium text-neutral-800 dark:text-neutral-100">Consolidado mensual — todos los proyectos</h3>
-                <span className="text-xs text-neutral-400">Disponible = cobrado y libre de IVA · el saldo bajo 100% pasa al mes siguiente</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-neutral-400 hidden sm:inline">Disponible = cobrado y libre de IVA</span>
+                  <Button variant="secondary" onClick={imprimirConsolidado} className="!py-1 !px-3 text-xs">
+                    <Printer className="w-3.5 h-3.5 mr-1.5" /> PDF
+                  </Button>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -3049,29 +3114,8 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                       );
                       // Cascada de egresos del mes: BH (por HsH) → impuestos → reparto
                       {
-                        const nucleoN = (t) => String(t || '').toUpperCase().replace(/[^A-ZÑ0-9]/g, '');
-                        const deshab = finanzasConfig.bhDeshabilitados || {};
-                        const bhsReales = movsDelMes('bh', mes);
-                        const porProf = {};
-                        horasRegistradas.forEach(h => {
-                          const mh = h.mesRegistro || (() => { const fx = parseLocalDate(h.fecha); return `${fx.getFullYear()}-${String(fx.getMonth() + 1).padStart(2, '0')}`; })();
-                          if (mh !== mes) return;
-                          const col = profesionales.find(c => String(c.id) === String(h.profesionalId));
-                          if (!col || deshab[String(col.id)] === true) return;
-                          const key = String(col.id);
-                          if (!porProf[key]) porProf[key] = { col, horas: 0 };
-                          porProf[key].horas += parseFloat(h.horas) || 0;
-                        });
-                        const salidas = Object.values(porProf).filter(x => x.horas > 0).map(({ col, horas }) => {
-                          const uf = horas * (parseFloat(col.tarifaInterna) || 0);
-                          const reg = bhsReales.find(b => {
-                            const a = nucleoN(b.tercero); const c = nucleoN(col.nombre);
-                            return a.length > 3 && c.length > 3 && (a.includes(c) || c.includes(a));
-                          });
-                          const monto = reg ? (reg.bruto || 0) : (ufHoy ? Math.round(uf * ufHoy) : 0);
-                          return { col, horas, uf, monto, reg };
-                        });
-                        salidas.forEach(s => {
+                        const eg = egresosDelMes(mes, sub);
+                        eg.salidas.forEach(s => {
                           filasProy.push(
                             <tr key={`${mes}_bh_${s.col.id}`} className="border-b border-neutral-100 dark:border-neutral-700 bg-violet-50/50 dark:bg-violet-900/10">
                               <td className="py-1.5 pl-3 text-neutral-600 dark:text-neutral-300 text-xs" colSpan={2}>
@@ -3094,9 +3138,6 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                             </tr>
                           );
                         });
-                        const totBH = salidas.reduce((sum, s) => sum + s.monto, 0);
-                        const ppmCLP = Math.round(sub.netoCLP * ((parseFloat(finanzasConfig.ppmTasa) || 0) / 100));
-                        const reparto = sub.totalCLP - sub.ivaCLP - ppmCLP - totBH;
                         filasProy.push(
                           <tr key={`${mes}_iva_egreso`} className="border-b border-neutral-100 dark:border-neutral-700 bg-amber-50/50 dark:bg-amber-900/10">
                             <td className="py-1.5 pl-3 text-neutral-600 dark:text-neutral-300 text-xs" colSpan={3} title="IVA de las ventas del mes. Si hay crédito fiscal por compras, el F29 real será menor — revisa la pestaña F29.">− IVA por pagar al SII</td>
@@ -3108,7 +3149,7 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                         filasProy.push(
                           <tr key={`${mes}_ppm_egreso`} className="border-b border-neutral-100 dark:border-neutral-700 bg-amber-50/50 dark:bg-amber-900/10">
                             <td className="py-1.5 pl-3 text-neutral-600 dark:text-neutral-300 text-xs" colSpan={3}>− PPM ({finanzasConfig.ppmTasa}% ventas netas)</td>
-                            <td className="py-1.5 text-right text-red-600 text-xs" colSpan={3}>−{ufHoy ? fmtCLP(ppmCLP) : '—'}</td>
+                            <td className="py-1.5 text-right text-red-600 text-xs" colSpan={3}>−{ufHoy ? fmtCLP(eg.ppmCLP) : '—'}</td>
                             <td colSpan={2}></td>
                             <td className="py-1.5 text-center"><span className="text-[10px] font-medium rounded-full px-2 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">egreso SII</span></td>
                           </tr>
@@ -3116,10 +3157,10 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                         filasProy.push(
                           <tr key={`${mes}_reparto`} className="border-b-2 border-neutral-300 dark:border-neutral-600">
                             <td className="py-2 pl-3 text-neutral-800 dark:text-neutral-100 text-xs font-medium" colSpan={3}>= Disponible para reparto (total − IVA − PPM − BH, antes de compras)</td>
-                            <td className={`py-2 text-right font-bold ${reparto < 0 ? 'text-red-600' : 'text-neutral-800 dark:text-neutral-100'}`} colSpan={3}>{ufHoy ? fmtCLP(reparto) : '—'}</td>
+                            <td className={`py-2 text-right font-bold ${eg.reparto < 0 ? 'text-red-600' : 'text-neutral-800 dark:text-neutral-100'}`} colSpan={3}>{ufHoy ? fmtCLP(eg.reparto) : '—'}</td>
                             <td colSpan={2}></td>
                             <td className="py-2 text-center">
-                              <span className="text-[10px] font-medium rounded-full px-2 py-0.5 bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300" title="50% Fabián · 50% Sebastián">{ufHoy ? `${fmtCLP(Math.round(reparto / 2))} c/u` : '50/50'}</span>
+                              <span className="text-[10px] font-medium rounded-full px-2 py-0.5 bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300" title="50% Fabián · 50% Sebastián">{ufHoy ? `${fmtCLP(Math.round(eg.reparto / 2))} c/u` : '50/50'}</span>
                             </td>
                           </tr>
                         );
