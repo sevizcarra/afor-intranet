@@ -1,0 +1,9 @@
+{
+  "root": true,
+  "parser": "@babel/eslint-parser",
+  "parserOptions": { "requireConfigFile": false, "babelOptions": { "presets": ["@babel/preset-react"] }, "ecmaVersion": 2022, "sourceType": "module", "ecmaFeatures": { "jsx": true } },
+  "env": { "browser": true, "es2022": true },
+  "plugins": ["react"],
+  "settings": { "react": { "version": "18" } },
+  "rules": { "no-undef": "error", "react/jsx-no-undef": "error", "no-dupe-keys": "error" }
+}

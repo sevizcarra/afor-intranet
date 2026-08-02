@@ -2414,6 +2414,7 @@ export default function MatrizIntranet() {
     const [expandido, setExpandido] = useState(null);
     const [finTab, setFinTab] = useState('proyectos'); // proyectos | movimientos | f29 | anual
     const [finMes, setFinMes] = useState(() => hoyLocalStr().slice(0, 7));
+    const [certDebug, setCertDebug] = useState(null); // texto leído del último certificado F29 importado
     const [finAnio, setFinAnio] = useState(() => new Date().getFullYear());
     // Formulario de movimientos (BH / compras / ventas)
     const [movTipo, setMovTipo] = useState('bh');
@@ -4026,17 +4027,46 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
                       const ok = await saveFinanzasConfig({ f29Pagos: { [finMes]: nuevo } });
                       showNotification(ok ? 'success' : 'error', ok ? `F29 ${finMes} registrado` : 'No se pudo guardar');
                     };
+                    const importarCertificado = async (file) => {
+                      if (!file) return;
+                      try {
+                        const { extraerLineasPDF, parsearCertificadoF29 } = await import('./pdfImport');
+                        const lineas = await extraerLineasPDF(file);
+                        const c = parsearCertificadoF29(lineas);
+                        setCertDebug({ lineas: lineas.slice(0, 40), avisos: c.avisos });
+                        if (c.periodo && c.periodo !== finMes) {
+                          showNotification('error', `El certificado es del período ${c.periodo} y estás en ${finMes} — cambia el mes y reimpórtalo`);
+                          return;
+                        }
+                        if (!c.total) {
+                          showNotification('error', 'No se pudo leer el monto pagado — abre "ver texto leído del certificado"');
+                          return;
+                        }
+                        const ppmCert = (c.ppm !== null && c.ppm !== undefined) ? c.ppm : f29.ppm;
+                        const ivaCert = Math.max(0, c.total - ppmCert);
+                        await guardarPago({ fecha: c.fecha || hoyLocalStr(), iva: ivaCert, ppm: ppmCert, folio: c.folio || '', origen: 'certificado' });
+                        showNotification('success', `Certificado leído: ${fmtCLP(c.total)} pagados${c.folio ? ' · folio ' + c.folio : ''} — revisa el desglose IVA/PPM`);
+                      } catch (e) {
+                        showNotification('error', 'No se pudo leer el PDF del certificado');
+                      }
+                    };
                     return (
                       <div className={`mt-3 rounded-lg border p-3 ${reg ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-neutral-50 dark:bg-neutral-800/50 border-neutral-200 dark:border-neutral-700'}`}>
                         <div className="flex items-center justify-between mb-2">
                           <span className={`text-xs font-medium ${reg ? 'text-green-700 dark:text-green-300' : 'text-neutral-600 dark:text-neutral-300'}`}>
                             {reg ? '✓ F29 declarado ante el SII' : 'Declaración ante el SII: pendiente'}
                           </span>
-                          {!reg && (
-                            <button onClick={() => guardarPago({})} className="text-xs bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-full px-3 py-1">
-                              Marcar declarado (valores simulados)
-                            </button>
-                          )}
+                          <div className="flex items-center gap-2">
+                            <label className="text-xs bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 hover:border-orange-400 text-neutral-700 dark:text-neutral-200 font-medium rounded-full px-3 py-1 cursor-pointer">
+                              Importar certificado SII
+                              <input type="file" accept=".pdf" className="hidden" onChange={e => { importarCertificado(e.target.files[0]); e.target.value = ''; }} />
+                            </label>
+                            {!reg && (
+                              <button onClick={() => guardarPago({})} className="text-xs bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-full px-3 py-1">
+                                Marcar declarado (valores simulados)
+                              </button>
+                            )}
+                          </div>
                         </div>
                         {reg && (
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs" key={finMes}>
@@ -4064,7 +4094,17 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
                         {reg && Math.abs(((reg.iva || 0) + (reg.ppm || 0)) - f29.totalPagar) > 1 && (
                           <p className="text-[10px] text-amber-600 mt-1.5">⚠ Difiere de la simulación ({fmtCLP(f29.totalPagar)}) en {fmtCLP(Math.abs(((reg.iva || 0) + (reg.ppm || 0)) - f29.totalPagar))} — revisa si faltan documentos por importar o si el SII aplicó reajustes.</p>
                         )}
+                        {reg && reg.folio && (
+                          <p className="text-[10px] text-neutral-500 mt-1.5">Folio {reg.folio}{reg.origen === 'certificado' ? ' · leído del certificado SII' : ''}</p>
+                        )}
                         <p className="text-[10px] text-neutral-400 mt-1.5">Se ajusta si lo pagado difiere de la simulación. Este registro alimenta el resumen "Pagos al SII" del Balance Anual.</p>
+                        {certDebug && (
+                          <details className="text-[10px] text-neutral-400 mt-1">
+                            <summary className="cursor-pointer hover:text-neutral-600">ver texto leído del certificado</summary>
+                            {certDebug.avisos.length > 0 && <p className="text-amber-600 mt-1">{certDebug.avisos.join(' · ')}</p>}
+                            <pre className="mt-1 p-2 bg-neutral-100 dark:bg-neutral-800 rounded max-h-40 overflow-auto whitespace-pre-wrap">{certDebug.lineas.join('\n')}</pre>
+                          </details>
+                        )}
                       </div>
                     );
                   })()}

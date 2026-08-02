@@ -190,3 +190,54 @@ export const parsearDocumentoTributario = (lineas, rutEmpresa = '') => {
 
   return { tipo: 'compra', afecta: null, fecha, tercero: null, emisor, receptor, rutEmisor, rutReceptor, folio, bruto: null, neto: null, iva: null, total: null, avisos: ['Tipo de documento no reconocido — completa los datos a mano'] };
 };
+
+// Certificado / comprobante de declaración F29 del SII:
+// extrae período tributario, folio, fecha de presentación, total pagado y PPM si aparece.
+export const parsearCertificadoF29 = (lineas) => {
+  const texto = lineas.join('\n');
+  const avisos = [];
+
+  // Período tributario: "07/2026", "07-2026" o "julio 2026"
+  let periodo = null;
+  let m = texto.match(/PER[IÍ]ODO\s*(?:TRIBUTARIO)?\s*:?\s*(\d{1,2})\s*[\/\-]\s*(\d{4})/i);
+  if (m) periodo = `${m[2]}-${String(+m[1]).padStart(2, '0')}`;
+  if (!periodo) {
+    m = texto.match(/PER[IÍ]ODO\s*(?:TRIBUTARIO)?\s*:?\s*([a-záéíóú]+)\s+(?:de\s+)?(\d{4})/i);
+    if (m) {
+      const mes = MESES[m[1].toLowerCase()];
+      if (mes) periodo = `${m[2]}-${String(mes).padStart(2, '0')}`;
+    }
+  }
+  if (!periodo) avisos.push('No se detectó el período tributario — verifica el mes');
+
+  let folio = null;
+  m = texto.match(/FOLIO\s*:?\s*(\d{4,15})/i);
+  if (m) folio = m[1];
+
+  const fecha = parseFechaTexto(texto);
+
+  // Total pagado: buscar líneas con la palabra clave y tomar su último monto
+  const montoDeLinea = (l) => {
+    const ms = [...l.matchAll(/\$?\s*([\d.]{4,15})(?!\d)/g)].map(x => parseMonto(x[1])).filter(n => n && n > 100);
+    return ms.length ? ms[ms.length - 1] : null;
+  };
+  let total = null;
+  for (const patron of [/TOTAL\s+PAGADO/i, /MONTO\s+PAGADO/i, /TOTAL\s+A\s+PAGAR/i, /PAGO\s+TOTAL/i, /TOTAL\s+DECLARADO/i]) {
+    const linea = lineas.find(l => patron.test(l));
+    if (linea) { total = montoDeLinea(linea); if (total) break; }
+  }
+  if (!total) {
+    // último recurso: el monto más grande del documento
+    const todos = lineas.map(montoDeLinea).filter(Boolean);
+    if (todos.length) { total = Math.max(...todos); avisos.push('Total tomado del monto mayor del documento — verifícalo'); }
+    else avisos.push('No se detectó el monto pagado');
+  }
+
+  // PPM si viene desglosado (código 062 del F29)
+  let ppm = null;
+  const lineaPPM = lineas.find(l => /PPM|PAGO\s+PROVISIONAL/i.test(l));
+  if (lineaPPM) ppm = montoDeLinea(lineaPPM);
+  if (ppm && total && ppm >= total) ppm = null;
+
+  return { periodo, folio, fecha, total, ppm, avisos };
+};
