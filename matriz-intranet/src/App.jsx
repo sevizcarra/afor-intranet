@@ -4077,6 +4077,19 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
         {/* ==================== PESTAÑA ANUAL ==================== */}
         {finTab === 'anual' && (() => {
           const anual = calcularAnual(finAnio);
+          const hoyMes = hoyLocalStr().slice(0, 7);
+          const pagosAnio = Array.from({ length: 12 }, (_, i) => `${finAnio}-${String(i + 1).padStart(2, '0')}`).map(m => {
+            const sim = calcularF29(m);
+            const reg = (finanzasConfig.f29Pagos || {})[m];
+            const pagadoTotal = reg ? (reg.iva || 0) + (reg.ppm || 0) : 0;
+            return { m, sim, reg, pagadoTotal, pendiente: !reg && m < hoyMes && sim.totalPagar > 0 };
+          });
+          const totPagos = pagosAnio.reduce((a, x) => ({
+            sim: a.sim + x.sim.totalPagar,
+            iva: a.iva + (x.reg ? (x.reg.iva || 0) : 0),
+            ppm: a.ppm + (x.reg ? (x.reg.ppm || 0) : 0),
+            pagado: a.pagado + x.pagadoTotal
+          }), { sim: 0, iva: 0, ppm: 0, pagado: 0 });
           return (
             <div className="space-y-4">
               <Card className="p-4">
