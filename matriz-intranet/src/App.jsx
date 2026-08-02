@@ -3082,7 +3082,6 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
 </div>
 <table><thead><tr><th>Proyecto</th><th class="c">Avance</th><th class="r">Neto UF</th><th class="r">Neto $</th><th class="r">IVA $</th><th class="r">Total $</th><th class="r">Disponible $</th><th class="r">Por cobrar $</th><th class="c">Estado</th></tr></thead>
 <tbody>${secciones}</tbody></table>
-<p class="nota">Disponible = cobrado y libre de IVA. El IVA corresponde a las ventas del período — con crédito fiscal por compras, el F29 real puede ser menor. BH simulada = HsH × tarifa de pago, pendiente del documento SII. Reparto calculado antes de compras. Montos a la UF del día de generación. Documento de gestión interna — no reemplaza la contabilidad oficial.</p>
 <div class="pie"><span>AFOR Arquitectura e Ingeniería</span><span>Generado ${new Date().toLocaleString('es-CL')}</span></div>
 </body></html>`);
             pw.document.close();
