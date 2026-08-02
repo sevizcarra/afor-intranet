@@ -3758,6 +3758,58 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                   {f29.bhs.length > 0 && (
                     <p className="text-[11px] text-neutral-400 pt-1">Nota: {f29.bhs.length} BH del mes por {fmtCLP(f29.bhs.reduce((sum, b) => sum + (b.bruto || 0), 0))} brutos — sin retención en tu F29 (cada emisor paga la suya).</p>
                   )}
+
+                  {/* Registro de la declaración real ante el SII */}
+                  {(() => {
+                    const reg = (finanzasConfig.f29Pagos || {})[finMes];
+                    const guardarPago = async (campos) => {
+                      const base = reg || { fecha: hoyLocalStr(), iva: Math.max(0, f29.ivaDeterminado), ppm: f29.ppm };
+                      const nuevo = { ...base, ...campos };
+                      const ok = await saveFinanzasConfig({ f29Pagos: { [finMes]: nuevo } });
+                      showNotification(ok ? 'success' : 'error', ok ? `F29 ${finMes} registrado` : 'No se pudo guardar');
+                    };
+                    return (
+                      <div className={`mt-3 rounded-lg border p-3 ${reg ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-neutral-50 dark:bg-neutral-800/50 border-neutral-200 dark:border-neutral-700'}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className={`text-xs font-medium ${reg ? 'text-green-700 dark:text-green-300' : 'text-neutral-600 dark:text-neutral-300'}`}>
+                            {reg ? '✓ F29 declarado ante el SII' : 'Declaración ante el SII: pendiente'}
+                          </span>
+                          {!reg && (
+                            <button onClick={() => guardarPago({})} className="text-xs bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-full px-3 py-1">
+                              Marcar declarado (valores simulados)
+                            </button>
+                          )}
+                        </div>
+                        {reg && (
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs" key={finMes}>
+                            <label className="block">
+                              <span className="text-neutral-500 dark:text-neutral-400 text-[10px]">Fecha declaración</span>
+                              <input type="date" defaultValue={reg.fecha || ''} onBlur={e => { if (e.target.value && e.target.value !== reg.fecha) guardarPago({ fecha: e.target.value }); }}
+                                className="w-full bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded px-2 py-1 text-neutral-800 dark:text-neutral-100" />
+                            </label>
+                            <label className="block">
+                              <span className="text-neutral-500 dark:text-neutral-400 text-[10px]">IVA pagado $</span>
+                              <input type="number" defaultValue={reg.iva ?? 0} onBlur={e => { const v = Math.round(parseFloat(e.target.value) || 0); if (v !== reg.iva) guardarPago({ iva: v }); }}
+                                className="w-full bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded px-2 py-1 text-right text-neutral-800 dark:text-neutral-100" />
+                            </label>
+                            <label className="block">
+                              <span className="text-neutral-500 dark:text-neutral-400 text-[10px]">PPM pagado $</span>
+                              <input type="number" defaultValue={reg.ppm ?? 0} onBlur={e => { const v = Math.round(parseFloat(e.target.value) || 0); if (v !== reg.ppm) guardarPago({ ppm: v }); }}
+                                className="w-full bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded px-2 py-1 text-right text-neutral-800 dark:text-neutral-100" />
+                            </label>
+                            <div className="block">
+                              <span className="text-neutral-500 dark:text-neutral-400 text-[10px]">Total pagado</span>
+                              <p className="font-bold text-neutral-800 dark:text-neutral-100 py-1">{fmtCLP((reg.iva || 0) + (reg.ppm || 0))}</p>
+                            </div>
+                          </div>
+                        )}
+                        {reg && Math.abs(((reg.iva || 0) + (reg.ppm || 0)) - f29.totalPagar) > 1 && (
+                          <p className="text-[10px] text-amber-600 mt-1.5">⚠ Difiere de la simulación ({fmtCLP(f29.totalPagar)}) en {fmtCLP(Math.abs(((reg.iva || 0) + (reg.ppm || 0)) - f29.totalPagar))} — revisa si faltan documentos por importar o si el SII aplicó reajustes.</p>
+                        )}
+                        <p className="text-[10px] text-neutral-400 mt-1.5">Se ajusta si lo pagado difiere de la simulación. Este registro alimenta el resumen "Pagos al SII" del Balance Anual.</p>
+                      </div>
+                    );
+                  })()}
                 </div>
               </Card>
             </div>
@@ -3792,6 +3844,11 @@ tfoot td { font-weight: bold; background: #f5f5f5; } .nota { color: #999; font-s
 <table><thead><tr><th>Mes</th><th style="text-align:right">Ventas netas</th><th style="text-align:right">Compras netas</th><th style="text-align:right">BH brutas</th><th style="text-align:right">Resultado</th><th style="text-align:right">Costo HsH (gestión)</th></tr></thead>
 <tbody>${filasHtml}</tbody>
 <tfoot><tr><td>TOTAL ${finAnio}</td><td style="text-align:right">${fmtCLP(t.ventas)}</td><td style="text-align:right">${fmtCLP(t.compras)}</td><td style="text-align:right">${fmtCLP(t.bh)}</td><td style="text-align:right">${fmtCLP(t.resultado)}</td><td style="text-align:right">${fmtCLP(t.costoHsH)}</td></tr></tfoot></table>
+<h3 style="font-size:12px;margin:16px 0 4px">PAGOS AL SII (F29) — ${finAnio}</h3>
+<table><thead><tr><th>Mes</th><th style="text-align:right">IVA pagado</th><th style="text-align:right">PPM pagado</th><th style="text-align:right">Total pagado</th><th style="text-align:right">Fecha declaración</th></tr></thead>
+<tbody>${pagosAnio.filter(x => x.reg).map(x => `<tr><td style="text-transform:capitalize">${parseLocalDate(x.m).toLocaleDateString('es-CL', { month: 'long' })}</td><td style="text-align:right">${fmtCLP(x.reg.iva || 0)}</td><td style="text-align:right">${fmtCLP(x.reg.ppm || 0)}</td><td style="text-align:right;font-weight:bold">${fmtCLP(x.pagadoTotal)}</td><td style="text-align:right">${x.reg.fecha ? parseLocalDate(x.reg.fecha).toLocaleDateString('es-CL') : '—'}</td></tr>`).join('') || '<tr><td colspan="5" style="color:#999">Sin declaraciones registradas</td></tr>'}</tbody>
+<tfoot><tr><td>TOTAL</td><td style="text-align:right">${fmtCLP(totPagos.iva)}</td><td style="text-align:right">${fmtCLP(totPagos.ppm)}</td><td style="text-align:right">${fmtCLP(totPagos.pagado)}</td><td></td></tr></tfoot></table>
+<p class="nota">El PPM anual pagado (${fmtCLP(totPagos.ppm)}) constituye crédito contra el impuesto de primera categoría en la declaración de renta AT ${finAnio + 1}.</p>
 <p class="nota">Resultado tributario = ventas netas − compras netas − BH brutas. La columna "Costo HsH" es interna (valorización de horas a tarifa de pago) y NO es un gasto tributario. Montos de EDP en UF convertidos a la UF del día de generación. Documento referencial — no reemplaza la contabilidad oficial.</p>
 <div class="nota" style="display:flex;justify-content:space-between"><span>Generado: ${new Date().toLocaleString('es-CL')}</span><span>AFOR Intranet</span></div>
 </body></html>`);
@@ -3842,6 +3899,57 @@ tfoot td { font-weight: bold; background: #f5f5f5; } .nota { color: #999; font-s
                   </tfoot>
                 </table>
                 <p className="text-[11px] text-neutral-400 mt-2">Resultado tributario = ventas − compras − BH (solo documentos SII). Las columnas grises son de gestión interna (HsH a tarifa de pago) y no van al contador. Ojo: si un profesional emite BH y además registra horas, su costo aparece en ambas columnas — son miradas distintas, no se suman entre sí.</p>
+              </Card>
+
+              {/* Pagos al SII (F29) del año */}
+              <Card className="p-4 overflow-x-auto">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-medium text-neutral-800 dark:text-neutral-100">Pagos al SII (F29) — {finAnio}</h3>
+                  <span className="text-xs text-neutral-400">Se registran en la pestaña F29 de cada mes</span>
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-neutral-500 dark:text-neutral-400 text-xs border-b border-neutral-200 dark:border-neutral-600">
+                      <th className="pb-2">Mes</th>
+                      <th className="pb-2 text-right">F29 simulado</th>
+                      <th className="pb-2 text-right">IVA pagado</th>
+                      <th className="pb-2 text-right">PPM pagado</th>
+                      <th className="pb-2 text-right">Total pagado</th>
+                      <th className="pb-2 text-center">Estado</th>
+                      <th className="pb-2 text-right">Fecha</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagosAnio.map(x => (
+                      <tr key={x.m} className={`border-b border-neutral-100 dark:border-neutral-700 ${!x.reg && !x.pendiente && x.sim.totalPagar === 0 ? 'opacity-40' : ''}`}>
+                        <td className="py-1.5 capitalize text-neutral-800 dark:text-neutral-100">{parseLocalDate(x.m).toLocaleDateString('es-CL', { month: 'long' })}</td>
+                        <td className="py-1.5 text-right text-neutral-500">{fmtCLP(x.sim.totalPagar)}</td>
+                        <td className="py-1.5 text-right text-neutral-800 dark:text-neutral-100">{x.reg ? fmtCLP(x.reg.iva || 0) : '—'}</td>
+                        <td className="py-1.5 text-right text-neutral-800 dark:text-neutral-100">{x.reg ? fmtCLP(x.reg.ppm || 0) : '—'}</td>
+                        <td className="py-1.5 text-right font-medium text-neutral-800 dark:text-neutral-100">{x.reg ? fmtCLP(x.pagadoTotal) : '—'}</td>
+                        <td className="py-1.5 text-center">
+                          {x.reg
+                            ? <span className="text-[10px] font-medium rounded-full px-2 py-0.5 bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">Declarado</span>
+                            : x.pendiente
+                              ? <span className="text-[10px] font-medium rounded-full px-2 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">Pendiente</span>
+                              : <span className="text-neutral-300 dark:text-neutral-600 text-xs">—</span>}
+                        </td>
+                        <td className="py-1.5 text-right text-neutral-500 text-xs">{x.reg && x.reg.fecha ? parseLocalDate(x.reg.fecha).toLocaleDateString('es-CL') : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-neutral-300 dark:border-neutral-600 font-bold">
+                      <td className="py-2 text-neutral-800 dark:text-neutral-100">TOTAL {finAnio}</td>
+                      <td className="py-2 text-right text-neutral-500">{fmtCLP(totPagos.sim)}</td>
+                      <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">{fmtCLP(totPagos.iva)}</td>
+                      <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">{fmtCLP(totPagos.ppm)}</td>
+                      <td className="py-2 text-right text-orange-600">{fmtCLP(totPagos.pagado)}</td>
+                      <td colSpan={2}></td>
+                    </tr>
+                  </tfoot>
+                </table>
+                <p className="text-[11px] text-neutral-400 mt-2">El PPM anual pagado ({fmtCLP(totPagos.ppm)}) es crédito contra el impuesto de primera categoría en la renta AT {finAnio + 1} — dato clave para tu contador.</p>
               </Card>
             </div>
           );
