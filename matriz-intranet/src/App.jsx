@@ -3043,6 +3043,58 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                           <td></td>
                         </tr>
                       );
+                      // Salidas: BH por HsH del mes (Dominique/Cristóbal y quien esté habilitado)
+                      {
+                        const nucleoN = (t) => String(t || '').toUpperCase().replace(/[^A-ZÑ0-9]/g, '');
+                        const deshab = finanzasConfig.bhDeshabilitados || {};
+                        const bhsReales = movsDelMes('bh', mes);
+                        const porProf = {};
+                        horasRegistradas.forEach(h => {
+                          const mh = h.mesRegistro || (() => { const fx = parseLocalDate(h.fecha); return `${fx.getFullYear()}-${String(fx.getMonth() + 1).padStart(2, '0')}`; })();
+                          if (mh !== mes) return;
+                          const col = profesionales.find(c => String(c.id) === String(h.profesionalId));
+                          if (!col || deshab[String(col.id)] === true) return;
+                          const key = String(col.id);
+                          if (!porProf[key]) porProf[key] = { col, horas: 0 };
+                          porProf[key].horas += parseFloat(h.horas) || 0;
+                        });
+                        const salidas = Object.values(porProf).filter(x => x.horas > 0).map(({ col, horas }) => {
+                          const uf = horas * (parseFloat(col.tarifaInterna) || 0);
+                          const reg = bhsReales.find(b => {
+                            const a = nucleoN(b.tercero); const c = nucleoN(col.nombre);
+                            return a.length > 3 && c.length > 3 && (a.includes(c) || c.includes(a));
+                          });
+                          const monto = reg ? (reg.bruto || 0) : (ufHoy ? Math.round(uf * ufHoy) : 0);
+                          return { col, horas, uf, monto, reg };
+                        });
+                        if (salidas.length) {
+                          salidas.forEach(s => {
+                            filasProy.push(
+                              <tr key={`${mes}_bh_${s.col.id}`} className="border-b border-neutral-100 dark:border-neutral-700 bg-violet-50/50 dark:bg-violet-900/10">
+                                <td className="py-1.5 pl-3 text-neutral-600 dark:text-neutral-300 text-xs" colSpan={2}>− BH {s.col.nombre} <span className="text-neutral-400">({s.horas.toFixed(1)} h HsH)</span></td>
+                                <td className="py-1.5 text-right text-red-600 text-xs">−{s.uf.toFixed(1)}</td>
+                                <td className="py-1.5 text-right text-red-600 text-xs" colSpan={3}>−{fmtCLP(s.monto)}</td>
+                                <td colSpan={2}></td>
+                                <td className="py-1.5 text-center">
+                                  {s.reg
+                                    ? <span className="text-[10px] font-medium rounded-full px-2 py-0.5 bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">BH registrada</span>
+                                    : <span className="text-[10px] font-medium rounded-full px-2 py-0.5 bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300">simulada</span>}
+                                </td>
+                              </tr>
+                            );
+                          });
+                          const totBH = salidas.reduce((sum, s) => sum + s.monto, 0);
+                          const cajaMes = (ufHoy ? Math.round(sub.neto * ufHoy) : 0) - totBH;
+                          filasProy.push(
+                            <tr key={`${mes}_caja`} className="border-b-2 border-neutral-200 dark:border-neutral-600 text-sm">
+                              <td className="py-1.5 pl-3 text-neutral-500 dark:text-neutral-400 text-xs" colSpan={2}>= Caja del mes (neto − BH, antes de compras e impuestos)</td>
+                              <td></td>
+                              <td className={`py-1.5 text-right font-bold text-xs ${cajaMes < 0 ? 'text-red-600' : 'text-neutral-800 dark:text-neutral-100'}`} colSpan={3}>{ufHoy ? fmtCLP(cajaMes) : '—'}</td>
+                              <td colSpan={3}></td>
+                            </tr>
+                          );
+                        }
+                      }
                       return filasProy;
                     })}
                   </tbody>
