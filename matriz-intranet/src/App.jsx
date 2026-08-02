@@ -2954,7 +2954,7 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
           </div>
         </Card>
 
-        {/* Consolidado mensual: aporte de cada proyecto, subtotal del mes y total */}
+        {/* Consolidado mensual: aporte por proyecto, egresos (BH e impuestos) y reparto */}
         {(() => {
           const ivaPctDe = (pr, mes) => {
             const ec = (pr.edpCond || {})[mes];
@@ -2966,11 +2966,14 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
               if (!consolidado[mes]) consolidado[mes] = [];
               const pct = ivaPctDe(pr, mes);
               const est = finP.estados[mes] || 'borrador';
+              const netoCLP = ufHoy ? Math.round(neto * ufHoy) : 0;
+              const ivaCLP = ufHoy ? Math.round(neto * pct / 100 * ufHoy) : 0;
               consolidado[mes].push({
                 id: pr.id, nombre: pr.nombre, neto, pct, estado: est,
-                iva: neto * pct / 100,
-                disponible: est === 'pagado' ? neto : 0,
-                porCobrar: est === 'pagado' ? 0 : neto * (1 + pct / 100),
+                ivaUF: neto * pct / 100,
+                netoCLP, ivaCLP, totalCLP: netoCLP + ivaCLP,
+                dispCLP: est === 'pagado' ? netoCLP : 0,
+                pcCLP: est === 'pagado' ? 0 : netoCLP + ivaCLP,
                 avance: calcAvanceProyecto(pr)
               });
             });
@@ -2978,9 +2981,10 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
           const mesesOrden = Object.keys(consolidado).sort();
           if (!mesesOrden.length) return null;
           const sumar = (arr) => arr.reduce((a, d) => ({
-            neto: a.neto + d.neto, iva: a.iva + d.iva,
-            disponible: a.disponible + d.disponible, porCobrar: a.porCobrar + d.porCobrar
-          }), { neto: 0, iva: 0, disponible: 0, porCobrar: 0 });
+            neto: a.neto + d.neto, ivaUF: a.ivaUF + d.ivaUF,
+            netoCLP: a.netoCLP + d.netoCLP, ivaCLP: a.ivaCLP + d.ivaCLP, totalCLP: a.totalCLP + d.totalCLP,
+            dispCLP: a.dispCLP + d.dispCLP, pcCLP: a.pcCLP + d.pcCLP
+          }), { neto: 0, ivaUF: 0, netoCLP: 0, ivaCLP: 0, totalCLP: 0, dispCLP: 0, pcCLP: 0 });
           const totC = sumar(mesesOrden.flatMap(m => consolidado[m]));
           const colorAvance = (av) => av >= 100 ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300' : av >= 50 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300';
           return (
@@ -3020,11 +3024,11 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                               <span className={`text-[10px] font-medium rounded-full px-2 py-0.5 ${colorAvance(d.avance)}`}>{Math.round(d.avance)}%</span>
                             </td>
                             <td className="py-1.5 text-right text-neutral-800 dark:text-neutral-100">{d.neto.toFixed(1)}</td>
-                            <td className="py-1.5 text-right text-neutral-600 dark:text-neutral-300">{ufHoy ? `$${clp(d.neto)}` : '—'}</td>
-                            <td className="py-1.5 text-right text-amber-600">{ufHoy ? `$${clp(d.iva)}` : '—'}</td>
-                            <td className="py-1.5 text-right text-neutral-800 dark:text-neutral-100">{ufHoy ? `$${clp(d.neto + d.iva)}` : '—'}</td>
-                            <td className={`py-1.5 text-right ${d.disponible > 0 ? 'text-green-600' : 'text-neutral-400'}`}>{d.disponible > 0 && ufHoy ? `$${clp(d.disponible)}` : '—'}</td>
-                            <td className={`py-1.5 text-right ${d.porCobrar > 0 ? 'text-orange-600' : 'text-neutral-400'}`}>{d.porCobrar > 0 && ufHoy ? `$${clp(d.porCobrar)}` : '—'}</td>
+                            <td className="py-1.5 text-right text-neutral-600 dark:text-neutral-300">{ufHoy ? fmtCLP(d.netoCLP) : '—'}</td>
+                            <td className="py-1.5 text-right text-amber-600">{ufHoy ? fmtCLP(d.ivaCLP) : '—'}</td>
+                            <td className="py-1.5 text-right text-neutral-800 dark:text-neutral-100">{ufHoy ? fmtCLP(d.totalCLP) : '—'}</td>
+                            <td className={`py-1.5 text-right ${d.dispCLP > 0 ? 'text-green-600' : 'text-neutral-400'}`}>{d.dispCLP > 0 && ufHoy ? fmtCLP(d.dispCLP) : '—'}</td>
+                            <td className={`py-1.5 text-right ${d.pcCLP > 0 ? 'text-orange-600' : 'text-neutral-400'}`}>{d.pcCLP > 0 && ufHoy ? fmtCLP(d.pcCLP) : '—'}</td>
                             <td className="py-1.5 text-center">
                               <span className={`${info.color} text-[10px] font-medium rounded-full px-2 py-0.5`}>{info.label}</span>
                             </td>
@@ -3035,15 +3039,15 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                         <tr key={`${mes}_subtotal`} className="border-b-2 border-neutral-200 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800/50 font-medium">
                           <td className="py-2 capitalize text-neutral-800 dark:text-neutral-100" colSpan={2}>{parseLocalDate(mes).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })}</td>
                           <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">{sub.neto.toFixed(1)}</td>
-                          <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">{ufHoy ? `$${clp(sub.neto)}` : '—'}</td>
-                          <td className="py-2 text-right text-amber-600">{ufHoy ? `$${clp(sub.iva)}` : '—'}</td>
-                          <td className="py-2 text-right font-bold text-neutral-800 dark:text-neutral-100">{ufHoy ? `$${clp(sub.neto + sub.iva)}` : '—'}</td>
-                          <td className="py-2 text-right text-green-600">{sub.disponible > 0 && ufHoy ? `$${clp(sub.disponible)}` : '—'}</td>
-                          <td className="py-2 text-right text-orange-600">{sub.porCobrar > 0 && ufHoy ? `$${clp(sub.porCobrar)}` : '—'}</td>
+                          <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">{ufHoy ? fmtCLP(sub.netoCLP) : '—'}</td>
+                          <td className="py-2 text-right text-amber-600">{ufHoy ? fmtCLP(sub.ivaCLP) : '—'}</td>
+                          <td className="py-2 text-right font-bold text-neutral-800 dark:text-neutral-100">{ufHoy ? fmtCLP(sub.totalCLP) : '—'}</td>
+                          <td className="py-2 text-right text-green-600">{sub.dispCLP > 0 && ufHoy ? fmtCLP(sub.dispCLP) : '—'}</td>
+                          <td className="py-2 text-right text-orange-600">{sub.pcCLP > 0 && ufHoy ? fmtCLP(sub.pcCLP) : '—'}</td>
                           <td></td>
                         </tr>
                       );
-                      // Salidas: BH por HsH del mes (Dominique/Cristóbal y quien esté habilitado)
+                      // Cascada de egresos del mes: BH (por HsH) → impuestos → reparto
                       {
                         const nucleoN = (t) => String(t || '').toUpperCase().replace(/[^A-ZÑ0-9]/g, '');
                         const deshab = finanzasConfig.bhDeshabilitados || {};
@@ -3067,41 +3071,58 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                           const monto = reg ? (reg.bruto || 0) : (ufHoy ? Math.round(uf * ufHoy) : 0);
                           return { col, horas, uf, monto, reg };
                         });
-                        if (salidas.length) {
-                          salidas.forEach(s => {
-                            filasProy.push(
-                              <tr key={`${mes}_bh_${s.col.id}`} className="border-b border-neutral-100 dark:border-neutral-700 bg-violet-50/50 dark:bg-violet-900/10">
-                                <td className="py-1.5 pl-3 text-neutral-600 dark:text-neutral-300 text-xs" colSpan={2}>
-                                  <label className="flex items-center gap-2 cursor-pointer" title="Desmarcar si no emite BH por HsH (socios: retiro vía reparto)">
-                                    <input type="checkbox" checked onChange={async () => {
-                                      const ok = await saveFinanzasConfig({ bhDeshabilitados: { [String(s.col.id)]: true } });
-                                      showNotification(ok ? 'success' : 'error', ok ? `${s.col.nombre}: sin BH por HsH (retiro vía reparto)` : 'No se pudo guardar');
-                                    }} className="w-3.5 h-3.5 accent-violet-500" />
-                                    <span>− BH {s.col.nombre} <span className="text-neutral-400">({s.horas.toFixed(1)} h HsH)</span></span>
-                                  </label>
-                                </td>
-                                <td className="py-1.5 text-right text-red-600 text-xs">−{s.uf.toFixed(1)}</td>
-                                <td className="py-1.5 text-right text-red-600 text-xs" colSpan={3}>−{fmtCLP(s.monto)}</td>
-                                <td colSpan={2}></td>
-                                <td className="py-1.5 text-center">
-                                  {s.reg
-                                    ? <span className="text-[10px] font-medium rounded-full px-2 py-0.5 bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">BH registrada</span>
-                                    : <span className="text-[10px] font-medium rounded-full px-2 py-0.5 bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300">simulada</span>}
-                                </td>
-                              </tr>
-                            );
-                          });
-                          const totBH = salidas.reduce((sum, s) => sum + s.monto, 0);
-                          const cajaMes = (ufHoy ? Math.round(sub.neto * ufHoy) : 0) - totBH;
+                        salidas.forEach(s => {
                           filasProy.push(
-                            <tr key={`${mes}_caja`} className="border-b-2 border-neutral-200 dark:border-neutral-600 text-sm">
-                              <td className="py-1.5 pl-3 text-neutral-500 dark:text-neutral-400 text-xs" colSpan={2}>= Caja del mes (neto − BH, antes de compras e impuestos)</td>
-                              <td></td>
-                              <td className={`py-1.5 text-right font-bold text-xs ${cajaMes < 0 ? 'text-red-600' : 'text-neutral-800 dark:text-neutral-100'}`} colSpan={3}>{ufHoy ? fmtCLP(cajaMes) : '—'}</td>
-                              <td colSpan={3}></td>
+                            <tr key={`${mes}_bh_${s.col.id}`} className="border-b border-neutral-100 dark:border-neutral-700 bg-violet-50/50 dark:bg-violet-900/10">
+                              <td className="py-1.5 pl-3 text-neutral-600 dark:text-neutral-300 text-xs" colSpan={2}>
+                                <label className="flex items-center gap-2 cursor-pointer" title="Desmarcar si no emite BH por HsH (socios: retiro vía reparto)">
+                                  <input type="checkbox" checked onChange={async () => {
+                                    const ok = await saveFinanzasConfig({ bhDeshabilitados: { [String(s.col.id)]: true } });
+                                    showNotification(ok ? 'success' : 'error', ok ? `${s.col.nombre}: sin BH por HsH (retiro vía reparto)` : 'No se pudo guardar');
+                                  }} className="w-3.5 h-3.5 accent-violet-500" />
+                                  <span>− BH {s.col.nombre} <span className="text-neutral-400">({s.horas.toFixed(1)} h HsH)</span></span>
+                                </label>
+                              </td>
+                              <td className="py-1.5 text-right text-red-600 text-xs">−{s.uf.toFixed(1)}</td>
+                              <td className="py-1.5 text-right text-red-600 text-xs" colSpan={3}>−{fmtCLP(s.monto)}</td>
+                              <td colSpan={2}></td>
+                              <td className="py-1.5 text-center">
+                                {s.reg
+                                  ? <span className="text-[10px] font-medium rounded-full px-2 py-0.5 bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">BH registrada</span>
+                                  : <span className="text-[10px] font-medium rounded-full px-2 py-0.5 bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300">simulada</span>}
+                              </td>
                             </tr>
                           );
-                        }
+                        });
+                        const totBH = salidas.reduce((sum, s) => sum + s.monto, 0);
+                        const ppmCLP = Math.round(sub.netoCLP * ((parseFloat(finanzasConfig.ppmTasa) || 0) / 100));
+                        const reparto = sub.totalCLP - sub.ivaCLP - ppmCLP - totBH;
+                        filasProy.push(
+                          <tr key={`${mes}_iva_egreso`} className="border-b border-neutral-100 dark:border-neutral-700 bg-amber-50/50 dark:bg-amber-900/10">
+                            <td className="py-1.5 pl-3 text-neutral-600 dark:text-neutral-300 text-xs" colSpan={3} title="IVA de las ventas del mes. Si hay crédito fiscal por compras, el F29 real será menor — revisa la pestaña F29.">− IVA por pagar al SII</td>
+                            <td className="py-1.5 text-right text-red-600 text-xs" colSpan={3}>−{ufHoy ? fmtCLP(sub.ivaCLP) : '—'}</td>
+                            <td colSpan={2}></td>
+                            <td className="py-1.5 text-center"><span className="text-[10px] font-medium rounded-full px-2 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">egreso SII</span></td>
+                          </tr>
+                        );
+                        filasProy.push(
+                          <tr key={`${mes}_ppm_egreso`} className="border-b border-neutral-100 dark:border-neutral-700 bg-amber-50/50 dark:bg-amber-900/10">
+                            <td className="py-1.5 pl-3 text-neutral-600 dark:text-neutral-300 text-xs" colSpan={3}>− PPM ({finanzasConfig.ppmTasa}% ventas netas)</td>
+                            <td className="py-1.5 text-right text-red-600 text-xs" colSpan={3}>−{ufHoy ? fmtCLP(ppmCLP) : '—'}</td>
+                            <td colSpan={2}></td>
+                            <td className="py-1.5 text-center"><span className="text-[10px] font-medium rounded-full px-2 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">egreso SII</span></td>
+                          </tr>
+                        );
+                        filasProy.push(
+                          <tr key={`${mes}_reparto`} className="border-b-2 border-neutral-300 dark:border-neutral-600">
+                            <td className="py-2 pl-3 text-neutral-800 dark:text-neutral-100 text-xs font-medium" colSpan={3}>= Disponible para reparto (total − IVA − PPM − BH, antes de compras)</td>
+                            <td className={`py-2 text-right font-bold ${reparto < 0 ? 'text-red-600' : 'text-neutral-800 dark:text-neutral-100'}`} colSpan={3}>{ufHoy ? fmtCLP(reparto) : '—'}</td>
+                            <td colSpan={2}></td>
+                            <td className="py-2 text-center">
+                              <span className="text-[10px] font-medium rounded-full px-2 py-0.5 bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300" title="50% Fabián · 50% Sebastián">{ufHoy ? `${fmtCLP(Math.round(reparto / 2))} c/u` : '50/50'}</span>
+                            </td>
+                          </tr>
+                        );
                       }
                       return filasProy;
                     })}
@@ -3111,11 +3132,11 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                       <tr className="border-t-2 border-neutral-300 dark:border-neutral-600 font-bold">
                         <td className="py-2 text-neutral-800 dark:text-neutral-100" colSpan={2}>TOTAL</td>
                         <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">{totC.neto.toFixed(1)}</td>
-                        <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">${clp(totC.neto)}</td>
-                        <td className="py-2 text-right text-amber-600">${clp(totC.iva)}</td>
-                        <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">${clp(totC.neto + totC.iva)}</td>
-                        <td className="py-2 text-right text-green-600">${clp(totC.disponible)}</td>
-                        <td className="py-2 text-right text-orange-600">${clp(totC.porCobrar)}</td>
+                        <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">{fmtCLP(totC.netoCLP)}</td>
+                        <td className="py-2 text-right text-amber-600">{fmtCLP(totC.ivaCLP)}</td>
+                        <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">{fmtCLP(totC.totalCLP)}</td>
+                        <td className="py-2 text-right text-green-600">{fmtCLP(totC.dispCLP)}</td>
+                        <td className="py-2 text-right text-orange-600">{fmtCLP(totC.pcCLP)}</td>
                         <td></td>
                       </tr>
                     </tfoot>
