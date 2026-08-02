@@ -3609,6 +3609,84 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                     ))}
                   </div>
                 )}
+                {/* Simulación de BH según HsH del mes */}
+                {(() => {
+                  const nucleoN = (t) => String(t || '').toUpperCase().replace(/[^A-ZÑ0-9]/g, '');
+                  const deshab = finanzasConfig.bhDeshabilitados || {};
+                  const porProf = {};
+                  horasRegistradas.forEach(h => {
+                    const mh = h.mesRegistro || (() => { const fx = parseLocalDate(h.fecha); return `${fx.getFullYear()}-${String(fx.getMonth() + 1).padStart(2, '0')}`; })();
+                    if (mh !== finMes) return;
+                    const col = profesionales.find(c => String(c.id) === String(h.profesionalId));
+                    if (!col) return;
+                    const key = String(col.id);
+                    if (!porProf[key]) porProf[key] = { col, horas: 0 };
+                    porProf[key].horas += parseFloat(h.horas) || 0;
+                  });
+                  const items = Object.values(porProf).map(({ col, horas }) => {
+                    const uf = horas * (parseFloat(col.tarifaInterna) || 0);
+                    const clpBruto = ufHoy ? Math.round(uf * ufHoy) : 0;
+                    const habilitado = deshab[String(col.id)] !== true;
+                    const bhReg = bhsMes.find(b => {
+                      const a = nucleoN(b.tercero); const c = nucleoN(col.nombre);
+                      return a.length > 3 && c.length > 3 && (a.includes(c) || c.includes(a));
+                    });
+                    return { col, horas, uf, clpBruto, habilitado, bhReg };
+                  }).filter(x => x.horas > 0).sort((a, b) => b.clpBruto - a.clpBruto);
+                  if (!items.length) return null;
+                  const totalHab = items.filter(x => x.habilitado && !x.bhReg).reduce((sum, x) => sum + x.clpBruto, 0);
+                  const toggleBH = async (col, habilitado) => {
+                    const ok = await saveFinanzasConfig({ bhDeshabilitados: { [String(col.id)]: habilitado } });
+                    showNotification(ok ? 'success' : 'error', ok ? `${col.iniciales || col.nombre}: BH por HsH ${habilitado ? 'deshabilitada' : 'habilitada'}` : 'No se pudo guardar');
+                  };
+                  return (
+                    <div className="mb-4 p-3 bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-xs font-medium text-violet-700 dark:text-violet-300 uppercase tracking-wide">BH del mes según HsH (simulación)</h3>
+                        {totalHab > 0 && <span className="text-xs text-violet-600 dark:text-violet-300 font-bold">por emitir: {fmtCLP(totalHab)}</span>}
+                      </div>
+                      <div className="space-y-1.5">
+                        {items.map(x => (
+                          <div key={x.col.id} className={`flex items-center justify-between gap-2 text-xs ${!x.habilitado ? 'opacity-50' : ''}`}>
+                            <label className="flex items-center gap-2 cursor-pointer min-w-0">
+                              <input type="checkbox" checked={x.habilitado} onChange={() => toggleBH(x.col, x.habilitado)} className="w-3.5 h-3.5 accent-violet-500" title={x.habilitado ? 'Deshabilitar (no emite BH por HsH)' : 'Habilitar BH por HsH'} />
+                              <span className="text-neutral-800 dark:text-neutral-100 truncate">{x.col.nombre}</span>
+                            </label>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-neutral-500">{x.horas.toFixed(1)} h · {x.uf.toFixed(2)} UF{ufHoy ? ` · ${fmtCLP(x.clpBruto)}` : ''}</span>
+                              {!x.habilitado ? (
+                                <span className="text-[10px] text-neutral-400">no emite BH (reparto)</span>
+                              ) : x.bhReg ? (
+                                <span className="text-[10px] font-medium text-green-600" title={`BH registrada: ${fmtCLP(x.bhReg.bruto || 0)}`}>
+                                  ✓ registrada{Math.abs((x.bhReg.bruto || 0) - x.clpBruto) > Math.max(1000, x.clpBruto * 0.02) ? ` (${fmtCLP(x.bhReg.bruto || 0)} ≠ sim)` : ''}
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => setMovDrafts(prev => prev.some(d => d.id === `sim_${x.col.id}_${finMes}`) ? prev : [...prev, {
+                                    id: `sim_${x.col.id}_${finMes}`,
+                                    archivo: `Simulación HsH ${finMes}`,
+                                    tipo: 'bh',
+                                    tercero: x.col.nombre,
+                                    fecha: hoyLocalStr(),
+                                    folio: '',
+                                    monto: String(x.clpBruto),
+                                    iva: '',
+                                    dist: [],
+                                    avisos: ['Simulada desde HsH — al llegar la BH real del SII, verifica folio y monto']
+                                  }])}
+                                  className="text-[10px] bg-violet-500 hover:bg-violet-600 text-white font-medium rounded-full px-2 py-0.5"
+                                >
+                                  Crear borrador
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-[10px] text-neutral-400 mt-2">Bruto = horas del mes × tarifa de pago × UF de hoy. Los deshabilitados (socios) no emiten BH por HsH — retiran vía reparto de utilidades.</p>
+                    </div>
+                  );
+                })()}
                 {seccion('Boletas de honorarios', bhsMes, true)}
                 {seccion('Compras', comprasMes, false)}
                 {seccion('Facturas de venta', ventasMes, false)}
