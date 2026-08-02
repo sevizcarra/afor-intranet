@@ -3071,7 +3071,15 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
                           salidas.forEach(s => {
                             filasProy.push(
                               <tr key={`${mes}_bh_${s.col.id}`} className="border-b border-neutral-100 dark:border-neutral-700 bg-violet-50/50 dark:bg-violet-900/10">
-                                <td className="py-1.5 pl-3 text-neutral-600 dark:text-neutral-300 text-xs" colSpan={2}>− BH {s.col.nombre} <span className="text-neutral-400">({s.horas.toFixed(1)} h HsH)</span></td>
+                                <td className="py-1.5 pl-3 text-neutral-600 dark:text-neutral-300 text-xs" colSpan={2}>
+                                  <label className="flex items-center gap-2 cursor-pointer" title="Desmarcar si no emite BH por HsH (socios: retiro vía reparto)">
+                                    <input type="checkbox" checked onChange={async () => {
+                                      const ok = await saveFinanzasConfig({ bhDeshabilitados: { [String(s.col.id)]: true } });
+                                      showNotification(ok ? 'success' : 'error', ok ? `${s.col.nombre}: sin BH por HsH (retiro vía reparto)` : 'No se pudo guardar');
+                                    }} className="w-3.5 h-3.5 accent-violet-500" />
+                                    <span>− BH {s.col.nombre} <span className="text-neutral-400">({s.horas.toFixed(1)} h HsH)</span></span>
+                                  </label>
+                                </td>
                                 <td className="py-1.5 text-right text-red-600 text-xs">−{s.uf.toFixed(1)}</td>
                                 <td className="py-1.5 text-right text-red-600 text-xs" colSpan={3}>−{fmtCLP(s.monto)}</td>
                                 <td colSpan={2}></td>
