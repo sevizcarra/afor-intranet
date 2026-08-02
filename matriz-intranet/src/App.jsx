@@ -4496,15 +4496,17 @@ tfoot td { font-weight: bold; background: #f5f5f5; } .nota { color: #999; font-s
       }
     };
     const imprimirHsHCosto = () => {
+      // Si el selector de impresión está en "Todos", respetar el filtro activo de la tabla
+      const profEfectivo = printProfesional !== 'all' ? printProfesional : filtroProfTabla;
       const delMes = horasRegistradas.filter(h => {
-        if (printProfesional !== 'all' && String(h.profesionalId) !== String(printProfesional)) return false;
+        if (profEfectivo !== 'all' && String(h.profesionalId) !== String(profEfectivo)) return false;
         const mh = h.mesRegistro || (() => {
           const f = parseLocalDate(h.fecha);
           return `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}`;
         })();
         return mh === mesHoras;
       });
-      if (delMes.length === 0) { showNotification('error', printProfesional === 'all' ? 'No hay horas registradas en este mes' : 'Ese profesional no tiene horas registradas este mes'); return; }
+      if (delMes.length === 0) { showNotification('error', profEfectivo === 'all' ? 'No hay horas registradas en este mes' : 'Ese profesional no tiene horas registradas este mes'); return; }
       const porProf = {};
       delMes.forEach(h => {
         const key = String(h.profesionalId);
@@ -4534,7 +4536,7 @@ tfoot td { font-weight: bold; background: #f5f5f5; } .nota { color: #999; font-s
       });
       const pw = window.open('', '_blank');
       if (!pw) { showNotification('error', 'Habilita las ventanas emergentes para poder imprimir'); return; }
-      const profSel = printProfesional !== 'all' ? profesionales.find(x => String(x.id) === String(printProfesional)) : null;
+      const profSel = profEfectivo !== 'all' ? profesionales.find(x => String(x.id) === String(profEfectivo)) : null;
       pw.document.write(`<html><head><title>Registro HsH — ${nombreMes}</title><style>
 @page { size: letter portrait; margin: 18mm; }
 * { box-sizing: border-box; }
