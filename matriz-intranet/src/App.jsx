@@ -3019,30 +3019,71 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
             const pw = window.open('', '_blank');
             if (!pw) { showNotification('error', 'Habilita las ventanas emergentes para poder imprimir'); return; }
             const nombreMes = (m) => parseLocalDate(m).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
+            const num = (n) => '$' + Math.round(n).toLocaleString('es-CL');
+            let repartoTotal = 0;
             const secciones = mesesOrden.map(mes => {
               const dets = [...consolidado[mes]].sort((a, b) => a.id.localeCompare(b.id));
               const sub = sumar(dets);
               const eg = egresosDelMes(mes, sub);
-              const filasP = dets.map(d => `<tr><td><b style="color:#ea580c">${d.id}</b> ${d.nombre}</td><td style="text-align:center">${Math.round(d.avance)}%</td><td style="text-align:right">${d.neto.toFixed(1)}</td><td style="text-align:right">$${d.netoCLP.toLocaleString('es-CL')}</td><td style="text-align:right">$${d.ivaCLP.toLocaleString('es-CL')}</td><td style="text-align:right"><b>$${d.totalCLP.toLocaleString('es-CL')}</b></td><td style="text-align:right;color:#16a34a">${d.dispCLP > 0 ? '$' + d.dispCLP.toLocaleString('es-CL') : '—'}</td><td style="text-align:right;color:#ea580c">${d.pcCLP > 0 ? '$' + d.pcCLP.toLocaleString('es-CL') : '—'}</td><td style="text-align:center;text-transform:capitalize">${d.estado}</td></tr>`).join('');
-              const filaSub = `<tr style="background:#f5f5f5;font-weight:bold"><td style="text-transform:capitalize">${nombreMes(mes)}</td><td></td><td style="text-align:right">${sub.neto.toFixed(1)}</td><td style="text-align:right">$${sub.netoCLP.toLocaleString('es-CL')}</td><td style="text-align:right">$${sub.ivaCLP.toLocaleString('es-CL')}</td><td style="text-align:right">$${sub.totalCLP.toLocaleString('es-CL')}</td><td style="text-align:right;color:#16a34a">${sub.dispCLP > 0 ? '$' + sub.dispCLP.toLocaleString('es-CL') : '—'}</td><td style="text-align:right;color:#ea580c">${sub.pcCLP > 0 ? '$' + sub.pcCLP.toLocaleString('es-CL') : '—'}</td><td></td></tr>`;
-              const filasBH = eg.salidas.map(s => `<tr style="color:#7c3aed"><td colspan="2">− BH ${s.col.nombre} (${s.horas.toFixed(1)} h HsH)</td><td style="text-align:right">−${s.uf.toFixed(1)}</td><td colspan="3" style="text-align:right;color:#dc2626">−$${s.monto.toLocaleString('es-CL')}</td><td colspan="2"></td><td style="text-align:center;font-size:8px">${s.reg ? 'BH registrada' : 'simulada'}</td></tr>`).join('');
-              const filasImp = `<tr style="color:#b45309"><td colspan="2">− IVA por pagar al SII</td><td></td><td colspan="3" style="text-align:right;color:#dc2626">−$${sub.ivaCLP.toLocaleString('es-CL')}</td><td colspan="2"></td><td style="text-align:center;font-size:8px">egreso SII</td></tr>` +
-                `<tr style="color:#b45309"><td colspan="2">− PPM (${finanzasConfig.ppmTasa}% ventas netas)</td><td></td><td colspan="3" style="text-align:right;color:#dc2626">−$${eg.ppmCLP.toLocaleString('es-CL')}</td><td colspan="2"></td><td style="text-align:center;font-size:8px">egreso SII</td></tr>`;
-              const filaReparto = `<tr style="background:#f0fdf4;font-weight:bold"><td colspan="2">= DISPONIBLE PARA REPARTO (total − IVA − PPM − BH, antes de compras)</td><td></td><td colspan="3" style="text-align:right;font-size:11px">$${eg.reparto.toLocaleString('es-CL')}</td><td colspan="2" style="text-align:right;color:#16a34a">50/50: $${Math.round(eg.reparto / 2).toLocaleString('es-CL')} c/u</td><td></td></tr>`;
-              return filasP + filaSub + filasBH + filasImp + filaReparto;
+              repartoTotal += eg.reparto;
+              const filasP = dets.map(d => `<tr><td><span class="cod">${d.id}</span>${d.nombre}</td><td class="c"><span class="chip">${Math.round(d.avance)}%</span></td><td class="r">${d.neto.toFixed(1)}</td><td class="r">${num(d.netoCLP)}</td><td class="r muted">${num(d.ivaCLP)}</td><td class="r"><b>${num(d.totalCLP)}</b></td><td class="r verde">${d.dispCLP > 0 ? num(d.dispCLP) : '—'}</td><td class="r naranja">${d.pcCLP > 0 ? num(d.pcCLP) : '—'}</td><td class="c estado">${d.estado}</td></tr>`).join('');
+              const filaSub = `<tr class="sub"><td>Subtotal</td><td></td><td class="r">${sub.neto.toFixed(1)}</td><td class="r">${num(sub.netoCLP)}</td><td class="r">${num(sub.ivaCLP)}</td><td class="r">${num(sub.totalCLP)}</td><td class="r verde">${sub.dispCLP > 0 ? num(sub.dispCLP) : '—'}</td><td class="r naranja">${sub.pcCLP > 0 ? num(sub.pcCLP) : '—'}</td><td></td></tr>`;
+              const filasBH = eg.salidas.map(s => `<tr class="egreso"><td colspan="2">− BH ${s.col.nombre} · ${s.horas.toFixed(1)} h HsH</td><td class="r">−${s.uf.toFixed(1)}</td><td colspan="3" class="r rojo">−${num(s.monto)}</td><td colspan="2"></td><td class="c estado">${s.reg ? 'registrada' : 'simulada'}</td></tr>`).join('');
+              const filasImp = `<tr class="egreso"><td colspan="3">− IVA por pagar al SII</td><td colspan="3" class="r rojo">−${num(sub.ivaCLP)}</td><td colspan="2"></td><td class="c estado">egreso SII</td></tr>` +
+                `<tr class="egreso"><td colspan="3">− PPM · ${finanzasConfig.ppmTasa}% ventas netas</td><td colspan="3" class="r rojo">−${num(eg.ppmCLP)}</td><td colspan="2"></td><td class="c estado">egreso SII</td></tr>`;
+              const filaReparto = `<tr class="reparto"><td colspan="3">Disponible para reparto</td><td colspan="3" class="r cifra">${num(eg.reparto)}</td><td colspan="3" class="r socios">50/50 · ${num(Math.round(eg.reparto / 2))} c/u</td></tr>`;
+              return `<tr class="mes"><td colspan="9">${nombreMes(mes)}</td></tr>` + filasP + filaSub + filasBH + filasImp + filaReparto;
             }).join('');
             pw.document.write(`<html><head><title>Consolidado mensual — AFOR</title><style>
-@page { size: letter landscape; margin: 12mm; } body { font-family: 'Segoe UI', system-ui, sans-serif; color: #171717; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-.header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #f97316; padding-bottom: 8px; margin-bottom: 14px; }
-h1 { font-size: 16px; margin: 0; } .sub { color: #666; font-size: 10px; margin: 2px 0 0; }
-table { width: 100%; border-collapse: collapse; font-size: 9px; } th { background: #262626; color: white; padding: 4px 6px; text-align: left; } td { border: 1px solid #d4d4d4; padding: 3px 6px; }
-.nota { color: #999; font-size: 8px; margin-top: 12px; border-top: 1px solid #e5e5e5; padding-top: 6px; }
+@page { size: letter landscape; margin: 16mm; }
+* { box-sizing: border-box; }
+body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #111; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; font-variant-numeric: tabular-nums; }
+.top { border-top: 3px solid #111; padding-top: 14px; display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+.marca { height: 26px; }
+.meta { text-align: right; }
+.meta p { margin: 0 0 2px; font-size: 7.5px; letter-spacing: 1.5px; text-transform: uppercase; color: #999; }
+.meta p b { color: #111; font-weight: 500; }
+h1 { font-size: 28px; font-weight: 300; letter-spacing: -0.5px; margin: 14px 0 2px; }
+h1 b { font-weight: 700; }
+.periodo { font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase; color: #f97316; margin: 0 0 18px; font-weight: 500; }
+.kpis { display: flex; gap: 24px; margin-bottom: 22px; }
+.kpi { flex: 1; border-top: 1px solid #111; padding-top: 6px; }
+.kpi p { margin: 0; font-size: 7px; letter-spacing: 1.5px; text-transform: uppercase; color: #999; }
+.kpi h2 { margin: 3px 0 0; font-size: 17px; font-weight: 600; letter-spacing: -0.3px; }
+.kpi.acc { border-top-color: #f97316; } .kpi.acc h2 { color: #f97316; }
+table { width: 100%; border-collapse: collapse; font-size: 8.5px; }
+th { font-size: 6.5px; letter-spacing: 1.5px; text-transform: uppercase; color: #999; font-weight: 500; text-align: left; padding: 6px 7px 4px; border-bottom: 0.5px solid #ccc; }
+td { padding: 4.5px 7px; border-bottom: 0.5px solid #eee; color: #333; }
+th.c, td.c { text-align: center; } th.r, td.r { text-align: right; }
+tr { page-break-inside: avoid; }
+.cod { font-weight: 700; color: #f97316; margin-right: 6px; font-family: 'SF Mono', Menlo, monospace; font-size: 8px; }
+.chip { font-size: 7px; color: #666; border: 0.5px solid #ccc; border-radius: 8px; padding: 1px 6px; }
+.muted { color: #999; } .verde { color: #16a34a; } .naranja { color: #ea580c; } .rojo { color: #dc2626; }
+.estado { font-size: 6.5px; letter-spacing: 1px; text-transform: uppercase; color: #999; }
+tr.mes td { border-bottom: 1.5px solid #111; font-size: 9px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; padding: 14px 7px 5px; color: #111; }
+tr.sub td { border-top: 1px solid #111; border-bottom: none; font-weight: 600; color: #111; padding-top: 6px; }
+tr.sub td:first-child { font-size: 7px; letter-spacing: 1.5px; text-transform: uppercase; color: #999; font-weight: 500; }
+tr.egreso td { color: #666; font-size: 8px; border-bottom: 0.5px solid #f3f3f3; }
+tr.reparto td { border-top: 1px solid #f97316; border-bottom: none; padding: 7px; font-size: 7.5px; letter-spacing: 1.5px; text-transform: uppercase; color: #999; font-weight: 500; }
+tr.reparto td.cifra { font-size: 13px; font-weight: 700; color: #111; letter-spacing: -0.3px; text-transform: none; }
+tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-spacing: 0; text-transform: none; }
+.pie { margin-top: 26px; border-top: 0.5px solid #ccc; padding-top: 8px; display: flex; justify-content: space-between; font-size: 6.5px; letter-spacing: 1.5px; text-transform: uppercase; color: #bbb; }
+.nota { font-size: 7px; color: #aaa; margin-top: 10px; line-height: 1.5; max-width: 75%; }
 </style></head><body>
-<div class="header"><div><h1>CONSOLIDADO MENSUAL — TODOS LOS PROYECTOS</h1><p class="sub">FACTURACIÓN, EGRESOS Y DISPONIBLE PARA REPARTO${ufHoy ? ` · UF ${new Date().toLocaleDateString('es-CL')}: $${ufHoy.toLocaleString('es-CL')}` : ''}</p></div><img src="${window.location.origin}/logo-afor.png" style="height:32px"/></div>
-<table><thead><tr><th>Mes / Proyecto</th><th style="text-align:center">Avance</th><th style="text-align:right">Neto UF</th><th style="text-align:right">Neto $</th><th style="text-align:right">IVA $</th><th style="text-align:right">Total $</th><th style="text-align:right">Disponible $</th><th style="text-align:right">Por cobrar $</th><th style="text-align:center">Estado</th></tr></thead>
+<div class="top"><img class="marca" src="${window.location.origin}/logo-afor.png"/><div class="meta"><p>Documento interno</p><p><b>${new Date().toLocaleDateString('es-CL')}</b></p>${ufHoy ? `<p>UF <b>$${ufHoy.toLocaleString('es-CL')}</b></p>` : ''}</div></div>
+<h1>Consolidado <b>mensual</b></h1>
+<p class="periodo">${mesesOrden.map(nombreMes).join(' · ')}</p>
+<div class="kpis">
+<div class="kpi"><p>Facturación total</p><h2>${num(totC.totalCLP)}</h2></div>
+<div class="kpi"><p>IVA a reservar</p><h2>${num(totC.ivaCLP)}</h2></div>
+<div class="kpi"><p>Disponible (cobrado)</p><h2>${num(totC.dispCLP)}</h2></div>
+<div class="kpi"><p>Por cobrar</p><h2>${num(totC.pcCLP)}</h2></div>
+<div class="kpi acc"><p>Reparto socios · 50/50</p><h2>${num(repartoTotal)}</h2></div>
+</div>
+<table><thead><tr><th>Proyecto</th><th class="c">Avance</th><th class="r">Neto UF</th><th class="r">Neto $</th><th class="r">IVA $</th><th class="r">Total $</th><th class="r">Disponible $</th><th class="r">Por cobrar $</th><th class="c">Estado</th></tr></thead>
 <tbody>${secciones}</tbody></table>
-<p class="nota">Disponible = cobrado y libre de IVA. El IVA mostrado es el de las ventas del período — con crédito fiscal por compras, el F29 real puede ser menor. BH "simulada" = calculada desde HsH × tarifa de pago, pendiente del documento SII. Montos en pesos a la UF del día de generación. Documento de gestión interna — no reemplaza la contabilidad oficial.</p>
-<div class="nota" style="display:flex;justify-content:space-between"><span>Generado: ${new Date().toLocaleString('es-CL')}</span><span>AFOR Intranet</span></div>
+<p class="nota">Disponible = cobrado y libre de IVA. El IVA corresponde a las ventas del período — con crédito fiscal por compras, el F29 real puede ser menor. BH simulada = HsH × tarifa de pago, pendiente del documento SII. Reparto calculado antes de compras. Montos a la UF del día de generación. Documento de gestión interna — no reemplaza la contabilidad oficial.</p>
+<div class="pie"><span>AFOR Arquitectura e Ingeniería</span><span>Generado ${new Date().toLocaleString('es-CL')}</span></div>
 </body></html>`);
             pw.document.close();
             setTimeout(() => pw.print(), 500);
@@ -4481,36 +4522,55 @@ tfoot td { font-weight: bold; background: #f5f5f5; } .nota { color: #999; font-s
           const hrs = parseFloat(h.horas) || 0;
           const costo = hrs * tarifaCosto;
           subHrs += hrs; subCosto += costo;
-          const proy = proyectos.find(p => p.id === h.proyectoId);
+          const proy = proyectos.find(px => px.id === h.proyectoId);
           const nombreProy = proy ? `${h.proyectoId} — ${proy.nombre}` : (h.proyectoId || '-');
-          return `<tr><td>${nombreProy}</td><td style="text-align:center">${h.tipo || '-'}</td><td style="text-align:center">${h.revision ? labelRevision(h.revision, proy?.fase) : '—'}</td><td>${h.entregable || '-'}</td><td style="text-align:center">${h.semana ? 'S' + h.semana : '-'}</td><td style="text-align:right">${hrs.toFixed(1)}</td><td style="text-align:right">${costo.toFixed(2)}</td></tr>`;
+          return `<tr><td>${nombreProy}</td><td class="c">${h.tipo || '—'}</td><td class="c">${h.revision ? labelRevision(h.revision, proy?.fase) : '—'}</td><td>${h.entregable || '—'}</td><td class="c">${h.semana ? 'S' + h.semana : '—'}</td><td class="r">${hrs.toFixed(1)}</td><td class="r">${costo.toFixed(2)}</td></tr>`;
         }).join('');
         totalGeneralHrs += subHrs; totalGeneralCosto += subCosto;
-        cuerpo += `<h3>${col ? col.nombre : 'Profesional ' + pid}${col && col.cargo ? ' · ' + col.cargo : ''} <span class="tarifa">(tarifa: ${tarifaCosto.toFixed(2)} UF/h)</span></h3>` +
-          `<table><thead><tr><th>Proyecto</th><th style="text-align:center">Tipo</th><th style="text-align:center">Rev</th><th>Detalle</th><th style="text-align:center">Sem</th><th style="text-align:right">Horas</th><th style="text-align:right">Valor (UF)</th></tr></thead>` +
+        cuerpo += `<div class="prof"><div class="prof-head"><div><p class="prof-nombre">${col ? col.nombre : 'Profesional ' + pid}</p><p class="prof-cargo">${col && col.cargo ? col.cargo : ''}</p></div><p class="prof-tarifa">${tarifaCosto.toFixed(2)} UF/H</p></div>` +
+          `<table><thead><tr><th>Proyecto</th><th class="c">Tipo</th><th class="c">Rev</th><th>Detalle</th><th class="c">Sem</th><th class="r">Horas</th><th class="r">Valor UF</th></tr></thead>` +
           `<tbody>${filas}</tbody>` +
-          `<tfoot><tr><td colspan="5">Subtotal ${col ? col.nombre : ''}</td><td style="text-align:right">${subHrs.toFixed(1)}</td><td style="text-align:right">${subCosto.toFixed(2)}</td></tr></tfoot></table>`;
+          `<tfoot><tr><td colspan="5">Subtotal</td><td class="r">${subHrs.toFixed(1)}</td><td class="r">${subCosto.toFixed(2)}</td></tr></tfoot></table></div>`;
       });
       const pw = window.open('', '_blank');
       if (!pw) { showNotification('error', 'Habilita las ventanas emergentes para poder imprimir'); return; }
+      const profSel = printProfesional !== 'all' ? profesionales.find(x => String(x.id) === String(printProfesional)) : null;
       pw.document.write(`<html><head><title>Registro HsH — ${nombreMes}</title><style>
-@page { size: letter portrait; margin: 14mm; }
-body { font-family: 'Segoe UI', system-ui, sans-serif; color: #171717; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-.header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #f97316; padding-bottom: 8px; margin-bottom: 14px; }
-h1 { font-size: 17px; margin: 0; } .sub { color: #666; font-size: 10px; margin: 2px 0 0; }
-h3 { font-size: 12px; margin: 16px 0 4px; } .tarifa { color: #888; font-weight: normal; font-size: 10px; }
+@page { size: letter portrait; margin: 18mm; }
+* { box-sizing: border-box; }
+body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #111; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; font-variant-numeric: tabular-nums; }
+.top { border-top: 3px solid #111; padding-top: 14px; display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+.marca { height: 26px; }
+.meta { text-align: right; }
+.meta p { margin: 0 0 2px; font-size: 7.5px; letter-spacing: 1.5px; text-transform: uppercase; color: #999; }
+.meta p b { color: #111; font-weight: 500; letter-spacing: 1.5px; }
+h1 { font-size: 30px; font-weight: 300; letter-spacing: -0.5px; margin: 18px 0 2px; }
+h1 b { font-weight: 700; }
+.periodo { font-size: 10px; letter-spacing: 2.5px; text-transform: uppercase; color: #f97316; margin: 0 0 26px; font-weight: 500; }
+.prof { margin-bottom: 26px; page-break-inside: avoid; }
+.prof-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1.5px solid #111; padding-bottom: 6px; margin-bottom: 0; }
+.prof-nombre { font-size: 13px; font-weight: 600; margin: 0; letter-spacing: -0.2px; }
+.prof-cargo { font-size: 8px; letter-spacing: 1.5px; text-transform: uppercase; color: #999; margin: 2px 0 0; }
+.prof-tarifa { font-size: 8px; letter-spacing: 1.5px; color: #999; margin: 0; }
 table { width: 100%; border-collapse: collapse; font-size: 9px; }
-th { background: #262626; color: white; padding: 3px 6px; text-align: left; }
-td { border: 1px solid #d4d4d4; padding: 3px 6px; }
-tfoot td { font-weight: bold; background: #f5f5f5; text-align: right; }
-tr { page-break-inside: avoid; }
-.total { margin-top: 16px; padding: 8px 12px; background: #ffedd5; border: 1px solid #fdba74; border-radius: 6px; display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; }
-.nota { color: #999; font-size: 8px; margin-top: 18px; border-top: 1px solid #e5e5e5; padding-top: 6px; display: flex; justify-content: space-between; }
+th { font-size: 7px; letter-spacing: 1.5px; text-transform: uppercase; color: #999; font-weight: 500; text-align: left; padding: 8px 8px 5px; border-bottom: 0.5px solid #ccc; }
+td { padding: 5px 8px; border-bottom: 0.5px solid #eee; color: #333; }
+th.c, td.c { text-align: center; } th.r, td.r { text-align: right; }
+tbody tr { page-break-inside: avoid; }
+tfoot td { border-top: 1px solid #111; border-bottom: none; font-weight: 600; color: #111; padding-top: 7px; font-size: 10px; }
+tfoot td:first-child { font-size: 7.5px; letter-spacing: 1.5px; text-transform: uppercase; color: #999; font-weight: 500; }
+.total { margin-top: 30px; border-top: 3px solid #111; padding-top: 12px; display: flex; justify-content: space-between; align-items: baseline; }
+.total-label { font-size: 8px; letter-spacing: 2px; text-transform: uppercase; color: #999; }
+.total-cifra { font-size: 26px; font-weight: 300; letter-spacing: -0.5px; }
+.total-cifra b { font-weight: 700; color: #f97316; }
+.pie { margin-top: 40px; border-top: 0.5px solid #ccc; padding-top: 8px; display: flex; justify-content: space-between; font-size: 6.5px; letter-spacing: 1.5px; text-transform: uppercase; color: #bbb; }
 </style></head><body>
-<div class="header"><div><h1>REGISTRO DE HORAS HsH</h1><p class="sub">${nombreMes.toUpperCase()}${printProfesional !== 'all' ? (() => { const c = profesionales.find(x => String(x.id) === String(printProfesional)); return c ? ' · ' + c.nombre.toUpperCase() : ''; })() : ''}</p></div><img src="${window.location.origin}/logo-afor.png" style="height:34px"/></div>
+<div class="top"><img class="marca" src="${window.location.origin}/logo-afor.png"/><div class="meta"><p>Documento interno</p><p><b>${new Date().toLocaleDateString('es-CL')}</b></p></div></div>
+<h1>Registro de <b>Horas HsH</b></h1>
+<p class="periodo">${nombreMes}${profSel ? ' — ' + profSel.nombre : ''}</p>
 ${cuerpo}
-<div class="total"><span>TOTAL GENERAL (${totalGeneralHrs.toFixed(1)} horas)</span><span>${totalGeneralCosto.toFixed(2)} UF</span></div>
-<div class="nota"><span>Generado: ${new Date().toLocaleString('es-CL')}</span><span>AFOR Intranet</span></div>
+<div class="total"><span class="total-label">Total general · ${totalGeneralHrs.toFixed(1)} horas</span><span class="total-cifra"><b>${totalGeneralCosto.toFixed(2)}</b> UF</span></div>
+<div class="pie"><span>AFOR Arquitectura e Ingeniería</span><span>Generado ${new Date().toLocaleString('es-CL')}</span></div>
 </body></html>`);
       pw.document.close();
       setTimeout(() => pw.print(), 500);
