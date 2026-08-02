@@ -2954,90 +2954,108 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
           </div>
         </Card>
 
-        {/* Consolidado mensual: todos los proyectos sumados por mes */}
+        {/* Consolidado mensual: aporte de cada proyecto, subtotal del mes y total */}
         {(() => {
           const ivaPctDe = (pr, mes) => {
             const ec = (pr.edpCond || {})[mes];
             return ec && ec.aplicar && ec.iva !== null && ec.iva !== undefined ? (Number(ec.iva) || 19) : 19;
           };
           const consolidado = {};
-          filas.forEach(({ p: pr, fin }) => {
-            Object.entries(fin.mesesNeto).forEach(([mes, neto]) => {
-              if (!consolidado[mes]) consolidado[mes] = { neto: 0, iva: 0, cobrado: 0, porCobrar: 0, dets: [] };
-              const c = consolidado[mes];
+          filas.forEach(({ p: pr, fin: finP }) => {
+            Object.entries(finP.mesesNeto).forEach(([mes, neto]) => {
+              if (!consolidado[mes]) consolidado[mes] = [];
               const pct = ivaPctDe(pr, mes);
-              c.neto += neto;
-              c.iva += neto * pct / 100;
-              const est = fin.estados[mes] || 'borrador';
-              if (est === 'pagado') c.cobrado += neto; else c.porCobrar += neto * (1 + pct / 100);
-              c.dets.push({ id: pr.id, neto, estado: est });
+              const est = finP.estados[mes] || 'borrador';
+              consolidado[mes].push({
+                id: pr.id, nombre: pr.nombre, neto, pct, estado: est,
+                iva: neto * pct / 100,
+                disponible: est === 'pagado' ? neto : 0,
+                porCobrar: est === 'pagado' ? 0 : neto * (1 + pct / 100),
+                avance: calcAvanceProyecto(pr)
+              });
             });
           });
           const mesesOrden = Object.keys(consolidado).sort();
           if (!mesesOrden.length) return null;
-          const totC = mesesOrden.reduce((a, m) => {
-            const c = consolidado[m];
-            a.neto += c.neto; a.iva += c.iva; a.cobrado += c.cobrado; a.porCobrar += c.porCobrar;
-            return a;
-          }, { neto: 0, iva: 0, cobrado: 0, porCobrar: 0 });
+          const sumar = (arr) => arr.reduce((a, d) => ({
+            neto: a.neto + d.neto, iva: a.iva + d.iva,
+            disponible: a.disponible + d.disponible, porCobrar: a.porCobrar + d.porCobrar
+          }), { neto: 0, iva: 0, disponible: 0, porCobrar: 0 });
+          const totC = sumar(mesesOrden.flatMap(m => consolidado[m]));
+          const colorAvance = (av) => av >= 100 ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300' : av >= 50 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300';
           return (
             <Card className="p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-medium text-neutral-800 dark:text-neutral-100">Consolidado mensual — todos los proyectos</h3>
-                <span className="text-xs text-neutral-400">Disponible = cobrado y libre de IVA</span>
+                <span className="text-xs text-neutral-400">Disponible = cobrado y libre de IVA · el saldo bajo 100% pasa al mes siguiente</span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-neutral-500 dark:text-neutral-400 text-xs border-b border-neutral-200 dark:border-neutral-600">
-                      <th className="pb-2">Mes</th>
+                      <th className="pb-2">Mes / Proyecto</th>
+                      <th className="pb-2 text-center">Avance</th>
                       <th className="pb-2 text-right">Neto UF</th>
                       <th className="pb-2 text-right">Neto $</th>
                       <th className="pb-2 text-right">IVA $</th>
                       <th className="pb-2 text-right">Total $</th>
                       <th className="pb-2 text-right">Disponible $</th>
                       <th className="pb-2 text-right">Por cobrar $</th>
-                      <th className="pb-2 pl-4">Proyectos</th>
+                      <th className="pb-2 text-center">Estado</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {mesesOrden.map(mes => {
-                      const c = consolidado[mes];
-                      return (
-                        <tr key={mes} className="border-b border-neutral-100 dark:border-neutral-700">
-                          <td className="py-2 text-neutral-800 dark:text-neutral-100 capitalize">{parseLocalDate(mes).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })}</td>
-                          <td className="py-2 text-right font-medium text-neutral-800 dark:text-neutral-100">{c.neto.toFixed(1)}</td>
-                          <td className="py-2 text-right text-neutral-700 dark:text-neutral-200">{ufHoy ? `$${clp(c.neto)}` : '—'}</td>
-                          <td className="py-2 text-right text-amber-600" title="IVA a reservar para el SII">{ufHoy ? `$${clp(c.iva)}` : '—'}</td>
-                          <td className="py-2 text-right font-bold text-neutral-800 dark:text-neutral-100" title="Total a depositar por los clientes">{ufHoy ? `$${clp(c.neto + c.iva)}` : '—'}</td>
-                          <td className={`py-2 text-right font-medium ${c.cobrado > 0 ? 'text-green-600' : 'text-neutral-400'}`}>{c.cobrado > 0 && ufHoy ? `$${clp(c.cobrado)}` : '—'}</td>
-                          <td className={`py-2 text-right ${c.porCobrar > 0 ? 'text-orange-600' : 'text-neutral-400'}`}>{c.porCobrar > 0 && ufHoy ? `$${clp(c.porCobrar)}` : '—'}</td>
-                          <td className="py-2 pl-4">
-                            <div className="flex flex-wrap gap-1">
-                              {c.dets.map(d => {
-                                const info = ESTADOS_EDP_FIN.find(x => x.id === d.estado) || ESTADOS_EDP_FIN[0];
-                                return (
-                                  <span key={d.id} className={`${info.color} text-[10px] font-medium rounded-full px-2 py-0.5`} title={`${d.neto.toFixed(1)} UF neto · ${info.label}`}>
-                                    {d.id} · {d.neto.toFixed(1)}
-                                  </span>
-                                );
-                              })}
-                            </div>
-                          </td>
+                    {mesesOrden.flatMap(mes => {
+                      const dets = [...consolidado[mes]].sort((a, b) => a.id.localeCompare(b.id));
+                      const sub = sumar(dets);
+                      const filasProy = dets.map(d => {
+                        const info = ESTADOS_EDP_FIN.find(x => x.id === d.estado) || ESTADOS_EDP_FIN[0];
+                        return (
+                          <tr key={`${mes}_${d.id}`} className="border-b border-neutral-100 dark:border-neutral-700">
+                            <td className="py-1.5 pl-3 text-neutral-800 dark:text-neutral-100">
+                              <span className="text-orange-600 font-mono text-xs">{d.id}</span>
+                              <span className="text-neutral-400 text-xs ml-2 hidden sm:inline">{d.nombre}</span>
+                            </td>
+                            <td className="py-1.5 text-center">
+                              <span className={`text-[10px] font-medium rounded-full px-2 py-0.5 ${colorAvance(d.avance)}`}>{Math.round(d.avance)}%</span>
+                            </td>
+                            <td className="py-1.5 text-right text-neutral-800 dark:text-neutral-100">{d.neto.toFixed(1)}</td>
+                            <td className="py-1.5 text-right text-neutral-600 dark:text-neutral-300">{ufHoy ? `$${clp(d.neto)}` : '—'}</td>
+                            <td className="py-1.5 text-right text-amber-600">{ufHoy ? `$${clp(d.iva)}` : '—'}</td>
+                            <td className="py-1.5 text-right text-neutral-800 dark:text-neutral-100">{ufHoy ? `$${clp(d.neto + d.iva)}` : '—'}</td>
+                            <td className={`py-1.5 text-right ${d.disponible > 0 ? 'text-green-600' : 'text-neutral-400'}`}>{d.disponible > 0 && ufHoy ? `$${clp(d.disponible)}` : '—'}</td>
+                            <td className={`py-1.5 text-right ${d.porCobrar > 0 ? 'text-orange-600' : 'text-neutral-400'}`}>{d.porCobrar > 0 && ufHoy ? `$${clp(d.porCobrar)}` : '—'}</td>
+                            <td className="py-1.5 text-center">
+                              <span className={`${info.color} text-[10px] font-medium rounded-full px-2 py-0.5`}>{info.label}</span>
+                            </td>
+                          </tr>
+                        );
+                      });
+                      filasProy.push(
+                        <tr key={`${mes}_subtotal`} className="border-b-2 border-neutral-200 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800/50 font-medium">
+                          <td className="py-2 capitalize text-neutral-800 dark:text-neutral-100" colSpan={2}>{parseLocalDate(mes).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })}</td>
+                          <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">{sub.neto.toFixed(1)}</td>
+                          <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">{ufHoy ? `$${clp(sub.neto)}` : '—'}</td>
+                          <td className="py-2 text-right text-amber-600">{ufHoy ? `$${clp(sub.iva)}` : '—'}</td>
+                          <td className="py-2 text-right font-bold text-neutral-800 dark:text-neutral-100">{ufHoy ? `$${clp(sub.neto + sub.iva)}` : '—'}</td>
+                          <td className="py-2 text-right text-green-600">{sub.disponible > 0 && ufHoy ? `$${clp(sub.disponible)}` : '—'}</td>
+                          <td className="py-2 text-right text-orange-600">{sub.porCobrar > 0 && ufHoy ? `$${clp(sub.porCobrar)}` : '—'}</td>
+                          <td></td>
                         </tr>
                       );
+                      return filasProy;
                     })}
                   </tbody>
-                  {ufHoy && (
+                  {ufHoy && mesesOrden.length > 1 && (
                     <tfoot>
-                      <tr className="border-t-2 border-neutral-300 dark:border-neutral-600 font-medium text-sm">
-                        <td className="py-2 text-neutral-500 dark:text-neutral-400">Totales</td>
+                      <tr className="border-t-2 border-neutral-300 dark:border-neutral-600 font-bold">
+                        <td className="py-2 text-neutral-800 dark:text-neutral-100" colSpan={2}>TOTAL</td>
                         <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">{totC.neto.toFixed(1)}</td>
                         <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">${clp(totC.neto)}</td>
-                        <td className="py-2 text-right text-amber-600" title="IVA a reservar para el SII">${clp(totC.iva)}</td>
-                        <td className="py-2 text-right font-bold text-neutral-800 dark:text-neutral-100">${clp(totC.neto + totC.iva)}</td>
-                        <td className="py-2 text-right text-green-600" title="Cobrado y libre de IVA">${clp(totC.cobrado)}</td>
-                        <td className="py-2 text-right text-orange-600" title="Pendiente de pago (c/IVA)">${clp(totC.porCobrar)}</td>
+                        <td className="py-2 text-right text-amber-600">${clp(totC.iva)}</td>
+                        <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">${clp(totC.neto + totC.iva)}</td>
+                        <td className="py-2 text-right text-green-600">${clp(totC.disponible)}</td>
+                        <td className="py-2 text-right text-orange-600">${clp(totC.porCobrar)}</td>
                         <td></td>
                       </tr>
                     </tfoot>
