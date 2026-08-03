@@ -4444,7 +4444,7 @@ tfoot td { font-weight: bold; background: #f5f5f5; } .nota { color: #999; font-s
     const proyectoSeleccionado = proyectos.find(p => p.id === proyecto);
     const entregables = proyectoSeleccionado?.entregables || [];
 
-    const esReunionOVisita = ['REU', 'VIS'].includes(tipoCarga);
+    const esReunionOVisita = ['REU', 'VIS', 'GES'].includes(tipoCarga); // GES: gestión/administración interna, no facturable
 
     // Fix permisos: los no-admin solo cargan sus propias horas
     useEffect(() => {
@@ -4728,6 +4728,7 @@ ${cuerpo}
                   <option value="INF">INF</option>
                   <option value="REU">REU</option>
                   <option value="VIS">VIS</option>
+                  <option value="GES">GES</option>
                 </Select>
 
                 <Select label="Semana" value={semana} onChange={e => setSemana(e.target.value)}>
