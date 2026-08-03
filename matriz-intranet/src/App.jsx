@@ -2787,11 +2787,14 @@ export default function MatrizIntranet() {
       const ivaDeterminado = base.debito - base.credito - remanenteEntrante;
       const remanenteSaliente = ivaDeterminado < 0 ? -ivaDeterminado : 0;
       const ppm = Math.max(0, Math.round(base.ventasNetas * ((parseFloat(finanzasConfig.ppmTasa) || 0) / 100)));
-      const totalPagar = Math.max(0, ivaDeterminado) + ppm;
+      // Retención de BH recibidas (modelo receptor: AFOR retiene y entera al SII)
+      const tasaRet = (parseFloat(finanzasConfig.retencionBH) || 0) / 100;
+      const retenciones = base.bhs.reduce((sum, b) => sum + Math.round((b.bruto || 0) * tasaRet), 0);
+      const totalPagar = Math.max(0, ivaDeterminado) + ppm + retenciones;
       // Referencia de trazabilidad: EDPs marcados facturados/pagados este mes
       const referenciaEDP = ventasEDPDelMes(mesStr);
       const referenciaEDPNeto = referenciaEDP.reduce((sum, v) => sum + v.netoCLP, 0);
-      return { ...base, remanenteEntrante, remanenteSaliente, ivaDeterminado, ppm, totalPagar, referenciaEDP, referenciaEDPNeto };
+      return { ...base, remanenteEntrante, remanenteSaliente, ivaDeterminado, ppm, retenciones, totalPagar, referenciaEDP, referenciaEDPNeto };
     };
 
     // Resumen anual (tributario + gestión)
@@ -3169,7 +3172,7 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
                                 </label>
                               </td>
                               <td className="py-1.5 text-right text-red-600 text-xs">−{s.uf.toFixed(1)}</td>
-                              <td className="py-1.5 text-right text-red-600 text-xs" colSpan={3}>−{fmtCLP(s.monto)}</td>
+                              <td className="py-1.5 text-right text-red-600 text-xs" colSpan={3} title={`Bruto ${fmtCLP(s.monto)} · retención ${fmtCLP(Math.round(s.monto * ((parseFloat(finanzasConfig.retencionBH) || 0) / 100)))} al SII · líquido ${fmtCLP(s.monto - Math.round(s.monto * ((parseFloat(finanzasConfig.retencionBH) || 0) / 100)))} al profesional`}>−{fmtCLP(s.monto)}</td>
                               <td colSpan={2}></td>
                               <td className="py-1.5 text-center">
                                 {s.reg
@@ -3834,7 +3837,7 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
                               <span className="text-neutral-800 dark:text-neutral-100 truncate">{x.col.nombre}</span>
                             </label>
                             <div className="flex items-center gap-2 shrink-0">
-                              <span className="text-neutral-500">{x.horas.toFixed(1)} h · {x.uf.toFixed(2)} UF{ufHoy ? ` · ${fmtCLP(x.clpBruto)}` : ''}</span>
+                              <span className="text-neutral-500">{x.horas.toFixed(1)} h · {x.uf.toFixed(2)} UF{ufHoy ? ` · bruto ${fmtCLP(x.clpBruto)} · líq. ${fmtCLP(x.clpBruto - Math.round(x.clpBruto * ((parseFloat(finanzasConfig.retencionBH) || 0) / 100)))}` : ''}</span>
                               {!x.habilitado ? (
                                 <span className="text-[10px] text-neutral-400">no emite BH (reparto)</span>
                               ) : x.bhReg ? (
@@ -3864,7 +3867,7 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
                           </div>
                         ))}
                       </div>
-                      <p className="text-[10px] text-neutral-400 mt-2">Bruto = horas del mes × tarifa de pago × UF de hoy. Los deshabilitados (socios) no emiten BH por HsH — retiran vía reparto de utilidades.</p>
+                      <p className="text-[10px] text-neutral-400 mt-2">Bruto = horas × tarifa de pago × UF de hoy. AFOR retiene el {finanzasConfig.retencionBH}% y lo entera en el F29 — se transfiere el líquido. Los deshabilitados (socios) no emiten BH por HsH.</p>
                     </div>
                   );
                 })()}
@@ -3906,6 +3909,17 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
                       }}
                       className="w-16 bg-white dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 rounded px-1.5 py-1 text-right text-neutral-800 dark:text-neutral-100" />%
                     <span className="text-[10px]">(Ley 21.755: 0,125% hasta ene-2028)</span>
+                    <span className="ml-2">Ret. BH</span>
+                    <input type="number" step="0.25" defaultValue={finanzasConfig.retencionBH}
+                      onBlur={async e => {
+                        const v = parseFloat(e.target.value);
+                        if (v >= 0 && v !== finanzasConfig.retencionBH) {
+                          const ok = await saveFinanzasConfig({ retencionBH: v });
+                          showNotification(ok ? 'success' : 'error', ok ? `Retención BH: ${v}%` : 'No se pudo guardar');
+                        }
+                      }}
+                      className="w-16 bg-white dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 rounded px-1.5 py-1 text-right text-neutral-800 dark:text-neutral-100" />%
+                    <span className="text-[10px]">(sube por ley cada año hasta 17% en 2028)</span>
                   </div>
                 </div>
                 <p className="text-[11px] text-neutral-400 mt-1">El F29 se construye SOLO con documentos cargados en Movimientos. Los EDP son trazabilidad de procesos y aparecen abajo como referencia cruzada (UF de hoy{ufHoy ? `: $${ufHoy.toLocaleString('es-CL')}` : ''}).</p>
@@ -4010,19 +4024,22 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
                     <p className="text-[10px] text-neutral-400">El remanente se arrastra automáticamente al mes siguiente (simulación sin reajuste UTM).</p>
                   )}
                   <div className="flex justify-between"><span className="text-neutral-600 dark:text-neutral-300">PPM ({finanzasConfig.ppmTasa}% de ventas netas)</span><b className="text-neutral-800 dark:text-neutral-100">{fmtCLP(f29.ppm)}</b></div>
+                  {f29.retenciones > 0 && (
+                    <div className="flex justify-between"><span className="text-neutral-600 dark:text-neutral-300">Retención BH ({finanzasConfig.retencionBH}% — AFOR retiene)</span><b className="text-neutral-800 dark:text-neutral-100">{fmtCLP(f29.retenciones)}</b></div>
+                  )}
                   <div className="flex justify-between bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg px-3 py-2 mt-2">
                     <span className="font-medium text-neutral-800 dark:text-neutral-100">TOTAL A PAGAR AL SII</span>
                     <span className="font-bold text-orange-600 text-base">{fmtCLP(f29.totalPagar)}</span>
                   </div>
                   {f29.bhs.length > 0 && (
-                    <p className="text-[11px] text-neutral-400 pt-1">Nota: {f29.bhs.length} BH del mes por {fmtCLP(f29.bhs.reduce((sum, b) => sum + (b.bruto || 0), 0))} brutos — sin retención en tu F29 (cada emisor paga la suya).</p>
+                    <p className="text-[11px] text-neutral-400 pt-1">Nota: {f29.bhs.length} BH del mes por {fmtCLP(f29.bhs.reduce((sum, b) => sum + (b.bruto || 0), 0))} brutos. AFOR retiene el {finanzasConfig.retencionBH}% ({fmtCLP(f29.retenciones)}) y lo entera en este F29 — transfiere a los profesionales el LÍQUIDO: {fmtCLP(f29.bhs.reduce((sum, b) => sum + (b.bruto || 0), 0) - f29.retenciones)}.</p>
                   )}
 
                   {/* Registro de la declaración real ante el SII */}
                   {(() => {
                     const reg = (finanzasConfig.f29Pagos || {})[finMes];
                     const guardarPago = async (campos) => {
-                      const base = reg || { fecha: hoyLocalStr(), iva: Math.max(0, f29.ivaDeterminado), ppm: f29.ppm };
+                      const base = reg || { fecha: hoyLocalStr(), iva: Math.max(0, f29.ivaDeterminado), ppm: f29.ppm, ret: f29.retenciones || 0 };
                       const nuevo = { ...base, ...campos };
                       const ok = await saveFinanzasConfig({ f29Pagos: { [finMes]: nuevo } });
                       showNotification(ok ? 'success' : 'error', ok ? `F29 ${finMes} registrado` : 'No se pudo guardar');
@@ -4043,8 +4060,9 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
                           return;
                         }
                         const ppmCert = (c.ppm !== null && c.ppm !== undefined) ? c.ppm : f29.ppm;
-                        const ivaCert = Math.max(0, c.total - ppmCert);
-                        await guardarPago({ fecha: c.fecha || hoyLocalStr(), iva: ivaCert, ppm: ppmCert, folio: c.folio || '', origen: 'certificado' });
+                        const retCert = f29.retenciones || 0;
+                        const ivaCert = Math.max(0, c.total - ppmCert - retCert);
+                        await guardarPago({ fecha: c.fecha || hoyLocalStr(), iva: ivaCert, ppm: ppmCert, ret: retCert, folio: c.folio || '', origen: 'certificado' });
                         showNotification('success', `Certificado leído: ${fmtCLP(c.total)} pagados${c.folio ? ' · folio ' + c.folio : ''} — revisa el desglose IVA/PPM`);
                       } catch (e) {
                         showNotification('error', 'No se pudo leer el PDF del certificado');
@@ -4069,7 +4087,7 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
                           </div>
                         </div>
                         {reg && (
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs" key={finMes}>
+                          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs" key={finMes}>
                             <label className="block">
                               <span className="text-neutral-500 dark:text-neutral-400 text-[10px]">Fecha declaración</span>
                               <input type="date" defaultValue={reg.fecha || ''} onBlur={e => { if (e.target.value && e.target.value !== reg.fecha) guardarPago({ fecha: e.target.value }); }}
@@ -4085,14 +4103,19 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
                               <input type="number" defaultValue={reg.ppm ?? 0} onBlur={e => { const v = Math.round(parseFloat(e.target.value) || 0); if (v !== reg.ppm) guardarPago({ ppm: v }); }}
                                 className="w-full bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded px-2 py-1 text-right text-neutral-800 dark:text-neutral-100" />
                             </label>
+                            <label className="block">
+                              <span className="text-neutral-500 dark:text-neutral-400 text-[10px]">Ret. BH pagada $</span>
+                              <input type="number" defaultValue={reg.ret ?? 0} onBlur={e => { const v = Math.round(parseFloat(e.target.value) || 0); if (v !== reg.ret) guardarPago({ ret: v }); }}
+                                className="w-full bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded px-2 py-1 text-right text-neutral-800 dark:text-neutral-100" />
+                            </label>
                             <div className="block">
                               <span className="text-neutral-500 dark:text-neutral-400 text-[10px]">Total pagado</span>
-                              <p className="font-bold text-neutral-800 dark:text-neutral-100 py-1">{fmtCLP((reg.iva || 0) + (reg.ppm || 0))}</p>
+                              <p className="font-bold text-neutral-800 dark:text-neutral-100 py-1">{fmtCLP((reg.iva || 0) + (reg.ppm || 0) + (reg.ret || 0))}</p>
                             </div>
                           </div>
                         )}
-                        {reg && Math.abs(((reg.iva || 0) + (reg.ppm || 0)) - f29.totalPagar) > 1 && (
-                          <p className="text-[10px] text-amber-600 mt-1.5">⚠ Difiere de la simulación ({fmtCLP(f29.totalPagar)}) en {fmtCLP(Math.abs(((reg.iva || 0) + (reg.ppm || 0)) - f29.totalPagar))} — revisa si faltan documentos por importar o si el SII aplicó reajustes.</p>
+                        {reg && Math.abs(((reg.iva || 0) + (reg.ppm || 0) + (reg.ret || 0)) - f29.totalPagar) > 1 && (
+                          <p className="text-[10px] text-amber-600 mt-1.5">⚠ Difiere de la simulación ({fmtCLP(f29.totalPagar)}) en {fmtCLP(Math.abs(((reg.iva || 0) + (reg.ppm || 0) + (reg.ret || 0)) - f29.totalPagar))} — revisa si faltan documentos por importar o si el SII aplicó reajustes.</p>
                         )}
                         {reg && reg.folio && (
                           <p className="text-[10px] text-neutral-500 mt-1.5">Folio {reg.folio}{reg.origen === 'certificado' ? ' · leído del certificado SII' : ''}</p>
@@ -4121,15 +4144,16 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
           const pagosAnio = Array.from({ length: 12 }, (_, i) => `${finAnio}-${String(i + 1).padStart(2, '0')}`).map(m => {
             const sim = calcularF29(m);
             const reg = (finanzasConfig.f29Pagos || {})[m];
-            const pagadoTotal = reg ? (reg.iva || 0) + (reg.ppm || 0) : 0;
+            const pagadoTotal = reg ? (reg.iva || 0) + (reg.ppm || 0) + (reg.ret || 0) : 0;
             return { m, sim, reg, pagadoTotal, pendiente: !reg && m < hoyMes && sim.totalPagar > 0 };
           });
           const totPagos = pagosAnio.reduce((a, x) => ({
             sim: a.sim + x.sim.totalPagar,
             iva: a.iva + (x.reg ? (x.reg.iva || 0) : 0),
             ppm: a.ppm + (x.reg ? (x.reg.ppm || 0) : 0),
+            ret: a.ret + (x.reg ? (x.reg.ret || 0) : 0),
             pagado: a.pagado + x.pagadoTotal
-          }), { sim: 0, iva: 0, ppm: 0, pagado: 0 });
+          }), { sim: 0, iva: 0, ppm: 0, ret: 0, pagado: 0 });
           return (
             <div className="space-y-4">
               <Card className="p-4">
@@ -4156,9 +4180,9 @@ tfoot td { font-weight: bold; background: #f5f5f5; } .nota { color: #999; font-s
 <tbody>${filasHtml}</tbody>
 <tfoot><tr><td>TOTAL ${finAnio}</td><td style="text-align:right">${fmtCLP(t.ventas)}</td><td style="text-align:right">${fmtCLP(t.compras)}</td><td style="text-align:right">${fmtCLP(t.bh)}</td><td style="text-align:right">${fmtCLP(t.resultado)}</td><td style="text-align:right">${fmtCLP(t.costoHsH)}</td></tr></tfoot></table>
 <h3 style="font-size:12px;margin:16px 0 4px">PAGOS AL SII (F29) — ${finAnio}</h3>
-<table><thead><tr><th>Mes</th><th style="text-align:right">IVA pagado</th><th style="text-align:right">PPM pagado</th><th style="text-align:right">Total pagado</th><th style="text-align:right">Fecha declaración</th></tr></thead>
-<tbody>${pagosAnio.filter(x => x.reg).map(x => `<tr><td style="text-transform:capitalize">${parseLocalDate(x.m).toLocaleDateString('es-CL', { month: 'long' })}</td><td style="text-align:right">${fmtCLP(x.reg.iva || 0)}</td><td style="text-align:right">${fmtCLP(x.reg.ppm || 0)}</td><td style="text-align:right;font-weight:bold">${fmtCLP(x.pagadoTotal)}</td><td style="text-align:right">${x.reg.fecha ? parseLocalDate(x.reg.fecha).toLocaleDateString('es-CL') : '—'}</td></tr>`).join('') || '<tr><td colspan="5" style="color:#999">Sin declaraciones registradas</td></tr>'}</tbody>
-<tfoot><tr><td>TOTAL</td><td style="text-align:right">${fmtCLP(totPagos.iva)}</td><td style="text-align:right">${fmtCLP(totPagos.ppm)}</td><td style="text-align:right">${fmtCLP(totPagos.pagado)}</td><td></td></tr></tfoot></table>
+<table><thead><tr><th>Mes</th><th style="text-align:right">IVA pagado</th><th style="text-align:right">PPM pagado</th><th style="text-align:right">Ret. BH pagada</th><th style="text-align:right">Total pagado</th><th style="text-align:right">Fecha declaración</th></tr></thead>
+<tbody>${pagosAnio.filter(x => x.reg).map(x => `<tr><td style="text-transform:capitalize">${parseLocalDate(x.m).toLocaleDateString('es-CL', { month: 'long' })}</td><td style="text-align:right">${fmtCLP(x.reg.iva || 0)}</td><td style="text-align:right">${fmtCLP(x.reg.ppm || 0)}</td><td style="text-align:right">${fmtCLP(x.reg.ret || 0)}</td><td style="text-align:right;font-weight:bold">${fmtCLP(x.pagadoTotal)}</td><td style="text-align:right">${x.reg.fecha ? parseLocalDate(x.reg.fecha).toLocaleDateString('es-CL') : '—'}</td></tr>`).join('') || '<tr><td colspan="6" style="color:#999">Sin declaraciones registradas</td></tr>'}</tbody>
+<tfoot><tr><td>TOTAL</td><td style="text-align:right">${fmtCLP(totPagos.iva)}</td><td style="text-align:right">${fmtCLP(totPagos.ppm)}</td><td style="text-align:right">${fmtCLP(totPagos.ret)}</td><td style="text-align:right">${fmtCLP(totPagos.pagado)}</td><td></td></tr></tfoot></table>
 <p class="nota">El PPM anual pagado (${fmtCLP(totPagos.ppm)}) constituye crédito contra el impuesto de primera categoría en la declaración de renta AT ${finAnio + 1}.</p>
 <p class="nota">Resultado tributario = ventas netas − compras netas − BH brutas. La columna "Costo HsH" es interna (valorización de horas a tarifa de pago) y NO es un gasto tributario. Montos de EDP en UF convertidos a la UF del día de generación. Documento referencial — no reemplaza la contabilidad oficial.</p>
 <div class="nota" style="display:flex;justify-content:space-between"><span>Generado: ${new Date().toLocaleString('es-CL')}</span><span>AFOR Intranet</span></div>
@@ -4225,6 +4249,7 @@ tfoot td { font-weight: bold; background: #f5f5f5; } .nota { color: #999; font-s
                       <th className="pb-2 text-right">F29 simulado</th>
                       <th className="pb-2 text-right">IVA pagado</th>
                       <th className="pb-2 text-right">PPM pagado</th>
+                      <th className="pb-2 text-right">Ret. BH pagada</th>
                       <th className="pb-2 text-right">Total pagado</th>
                       <th className="pb-2 text-center">Estado</th>
                       <th className="pb-2 text-right">Fecha</th>
@@ -4237,6 +4262,7 @@ tfoot td { font-weight: bold; background: #f5f5f5; } .nota { color: #999; font-s
                         <td className="py-1.5 text-right text-neutral-500">{fmtCLP(x.sim.totalPagar)}</td>
                         <td className="py-1.5 text-right text-neutral-800 dark:text-neutral-100">{x.reg ? fmtCLP(x.reg.iva || 0) : '—'}</td>
                         <td className="py-1.5 text-right text-neutral-800 dark:text-neutral-100">{x.reg ? fmtCLP(x.reg.ppm || 0) : '—'}</td>
+                        <td className="py-1.5 text-right text-neutral-800 dark:text-neutral-100">{x.reg ? fmtCLP(x.reg.ret || 0) : '—'}</td>
                         <td className="py-1.5 text-right font-medium text-neutral-800 dark:text-neutral-100">{x.reg ? fmtCLP(x.pagadoTotal) : '—'}</td>
                         <td className="py-1.5 text-center">
                           {x.reg
@@ -4255,6 +4281,7 @@ tfoot td { font-weight: bold; background: #f5f5f5; } .nota { color: #999; font-s
                       <td className="py-2 text-right text-neutral-500">{fmtCLP(totPagos.sim)}</td>
                       <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">{fmtCLP(totPagos.iva)}</td>
                       <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">{fmtCLP(totPagos.ppm)}</td>
+                      <td className="py-2 text-right text-neutral-800 dark:text-neutral-100">{fmtCLP(totPagos.ret)}</td>
                       <td className="py-2 text-right text-orange-600">{fmtCLP(totPagos.pagado)}</td>
                       <td colSpan={2}></td>
                     </tr>
