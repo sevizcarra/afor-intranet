@@ -2789,7 +2789,7 @@ export default function MatrizIntranet() {
       const ppm = Math.max(0, Math.round(base.ventasNetas * ((parseFloat(finanzasConfig.ppmTasa) || 0) / 100)));
       // Retención de BH recibidas (modelo receptor: AFOR retiene y entera al SII)
       const tasaRet = (parseFloat(finanzasConfig.retencionBH) || 0) / 100;
-      const retenciones = base.bhs.reduce((sum, b) => sum + Math.round((b.bruto || 0) * tasaRet), 0);
+      const retenciones = base.bhs.reduce((sum, b) => sum + (b.retEmisor ? 0 : Math.round((b.bruto || 0) * tasaRet)), 0);
       const totalPagar = Math.max(0, ivaDeterminado) + ppm + retenciones;
       // Referencia de trazabilidad: EDPs marcados facturados/pagados este mes
       const referenciaEDP = ventasEDPDelMes(mesStr);
@@ -3000,19 +3000,27 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
               const mh = h.mesRegistro || (() => { const fx = parseLocalDate(h.fecha); return `${fx.getFullYear()}-${String(fx.getMonth() + 1).padStart(2, '0')}`; })();
               if (mh !== mes) return;
               const col = profesionales.find(c => String(c.id) === String(h.profesionalId));
-              if (!col || deshab[String(col.id)] === true) return;
+              if (!col) return;
               const key = String(col.id);
               if (!porProf[key]) porProf[key] = { col, horas: 0 };
               porProf[key].horas += parseFloat(h.horas) || 0;
             });
-            const salidas = Object.values(porProf).filter(x => x.horas > 0).map(({ col, horas }) => {
-              const uf = horas * (parseFloat(col.tarifaInterna) || 0);
-              const reg = bhsReales.find(b => {
-                const a = nucleoN(b.tercero); const c = nucleoN(col.nombre);
-                return a.length > 3 && c.length > 3 && (a.includes(c) || c.includes(a));
+            // 1) BH REGISTRADAS: siempre son salida real, con o sin simulación
+            const usadas = new Set();
+            const salidas = bhsReales.map(b => {
+              const col = profesionales.find(c => {
+                const a = nucleoN(b.tercero); const cn = nucleoN(c.nombre);
+                return a.length > 3 && cn.length > 3 && (a.includes(cn) || cn.includes(a));
               });
-              const monto = reg ? (reg.bruto || 0) : (ufHoy ? Math.round(uf * ufHoy) : 0);
-              return { col, horas, uf, monto, reg };
+              if (col) usadas.add(String(col.id));
+              const horas = col ? ((porProf[String(col.id)] || {}).horas || 0) : 0;
+              return { col: col || { id: 'ext_' + (b._docId || b.id), nombre: b.tercero }, horas, uf: ufHoy ? (b.bruto || 0) / ufHoy : 0, monto: b.bruto || 0, reg: b };
+            });
+            // 2) SIMULADAS: solo habilitados con horas del mes y sin BH registrada
+            Object.values(porProf).forEach(({ col, horas }) => {
+              if (horas <= 0 || usadas.has(String(col.id)) || deshab[String(col.id)] === true) return;
+              const uf = horas * (parseFloat(col.tarifaInterna) || 0);
+              salidas.push({ col, horas, uf, monto: ufHoy ? Math.round(uf * ufHoy) : 0, reg: null });
             });
             const totBH = salidas.reduce((sum, s) => sum + s.monto, 0);
             const ppmCLP = Math.round(sub.netoCLP * ((parseFloat(finanzasConfig.ppmTasa) || 0) / 100));
@@ -3163,13 +3171,17 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
                           filasProy.push(
                             <tr key={`${mes}_bh_${s.col.id}`} className="border-b border-neutral-100 dark:border-neutral-700 bg-violet-50/50 dark:bg-violet-900/10">
                               <td className="py-1.5 pl-3 text-neutral-600 dark:text-neutral-300 text-xs" colSpan={2}>
-                                <label className="flex items-center gap-2 cursor-pointer" title="Desmarcar si no emite BH por HsH (socios: retiro vía reparto)">
-                                  <input type="checkbox" checked onChange={async () => {
-                                    const ok = await saveFinanzasConfig({ bhDeshabilitados: { [String(s.col.id)]: true } });
-                                    showNotification(ok ? 'success' : 'error', ok ? `${s.col.nombre}: sin BH por HsH (retiro vía reparto)` : 'No se pudo guardar');
-                                  }} className="w-3.5 h-3.5 accent-violet-500" />
-                                  <span>− BH {s.col.nombre} <span className="text-neutral-400">({s.horas.toFixed(1)} h HsH)</span></span>
-                                </label>
+                                {s.reg ? (
+                                  <span>− BH {s.col.nombre}{s.horas > 0 ? <span className="text-neutral-400"> ({s.horas.toFixed(1)} h HsH)</span> : null}{s.reg.folio ? <span className="text-neutral-400 font-mono"> N°{s.reg.folio}</span> : null}</span>
+                                ) : (
+                                  <label className="flex items-center gap-2 cursor-pointer" title="Desmarcar si no emite BH por HsH (socios: retiro vía reparto)">
+                                    <input type="checkbox" checked onChange={async () => {
+                                      const ok = await saveFinanzasConfig({ bhDeshabilitados: { [String(s.col.id)]: true } });
+                                      showNotification(ok ? 'success' : 'error', ok ? `${s.col.nombre}: sin BH por HsH (retiro vía reparto)` : 'No se pudo guardar');
+                                    }} className="w-3.5 h-3.5 accent-violet-500" />
+                                    <span>− BH {s.col.nombre} <span className="text-neutral-400">({s.horas.toFixed(1)} h HsH · simulada)</span></span>
+                                  </label>
+                                )}
                               </td>
                               <td className="py-1.5 text-right text-red-600 text-xs">−{s.uf.toFixed(1)}</td>
                               <td className="py-1.5 text-right text-red-600 text-xs" colSpan={3} title={`Bruto ${fmtCLP(s.monto)} · retención ${fmtCLP(Math.round(s.monto * ((parseFloat(finanzasConfig.retencionBH) || 0) / 100)))} al SII · líquido ${fmtCLP(s.monto - Math.round(s.monto * ((parseFloat(finanzasConfig.retencionBH) || 0) / 100)))} al profesional`}>−{fmtCLP(s.monto)}</td>
@@ -3567,7 +3579,19 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
                       </div>
                       <div className="text-right shrink-0">
                         {esBH ? (
-                          <p className="font-medium text-neutral-800 dark:text-neutral-100">{fmtCLP(m.bruto)}</p>
+                          <>
+                            <p className="font-medium text-neutral-800 dark:text-neutral-100">{fmtCLP(m.bruto)}</p>
+                            <button
+                              onClick={async () => {
+                                const ok = await saveMovimiento({ ...m, retEmisor: !m.retEmisor });
+                                showNotification(ok ? 'success' : 'error', ok ? `${m.tercero}: retención ${!m.retEmisor ? 'del emisor (fuera de tu F29)' : 'de AFOR (entra al F29)'}` : 'No se pudo guardar');
+                              }}
+                              className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${m.retEmisor ? 'bg-neutral-200 dark:bg-neutral-600 text-neutral-600 dark:text-neutral-300' : 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'}`}
+                              title={m.retEmisor ? 'El emisor paga su propia retención — no entra a tu F29. Clic para cambiar.' : `AFOR retiene ${finanzasConfig.retencionBH}% (${fmtCLP(Math.round((m.bruto || 0) * ((parseFloat(finanzasConfig.retencionBH) || 0) / 100)))}) y transfiere líquido ${fmtCLP((m.bruto || 0) - Math.round((m.bruto || 0) * ((parseFloat(finanzasConfig.retencionBH) || 0) / 100)))}. Clic para cambiar.`}
+                            >
+                              {m.retEmisor ? 'ret. emisor' : 'ret. AFOR'}
+                            </button>
+                          </>
                         ) : (
                           <>
                             <p className="font-medium text-neutral-800 dark:text-neutral-100">{fmtCLP(m.total)}</p>
@@ -3669,7 +3693,7 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
                     <Input label="IVA $ (auto 19% si lo dejas vacío)" type="number" value={movIva} onChange={e => setMovIva(e.target.value)} placeholder={montoBase ? String(Math.round(montoBase * 0.19)) : '19%'} />
                   )}
                   {movTipo === 'bh' && (
-                    <p className="text-[11px] text-neutral-400">La retención la paga el emisor — se registra el gasto por el monto bruto.</p>
+                    <p className="text-[11px] text-neutral-400">Por defecto AFOR retiene ({finanzasConfig.retencionBH}%) y la entera en el F29 — si la boleta dice retención del emisor, cámbialo con el chip "ret." de la tarjeta.</p>
                   )}
                   <Input label="Descripción (opcional)" value={movDesc} onChange={e => setMovDesc(e.target.value)} placeholder="Ej: servicios de dibujo julio" />
                   <div>
