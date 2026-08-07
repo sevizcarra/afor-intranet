@@ -987,6 +987,11 @@ export default function MatrizIntranet() {
     return asignados.includes(p.id); // Solo ve proyectos asignados
   });
   const proyectosActivosVisibles = proyectosVisibles.filter(p => !p.gestion && (!p.estado || p.estado?.toLowerCase() === 'activo'));
+  // Para cargar horas: proyectos activos + centros de gestión interna (estos al final)
+  const proyectosParaCarga = [
+    ...proyectosActivosVisibles,
+    ...proyectosVisibles.filter(p => p.gestion && (!p.estado || p.estado?.toLowerCase() === 'activo'))
+  ];
 
   // ============================================
   // FIRESTORE SUBSCRIPTIONS
@@ -4768,8 +4773,8 @@ ${cuerpo}
               )}
               
               <Select label="Proyecto" value={proyecto} onChange={e => { setProyecto(e.target.value); setEntregable(''); }}>
-                <option value="">{proyectosActivosVisibles.length === 0 ? 'Sin proyectos asignados' : 'Seleccionar...'}</option>
-                {proyectosActivosVisibles.map(p => (
+                <option value="">{proyectosParaCarga.length === 0 ? 'Sin proyectos asignados' : 'Seleccionar...'}</option>
+                {proyectosParaCarga.map(p => (
                   <option key={p.id} value={p.id}>{p.id} - {p.nombre}</option>
                 ))}
               </Select>
