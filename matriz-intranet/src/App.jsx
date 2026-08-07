@@ -2465,8 +2465,10 @@ export default function MatrizIntranet() {
           }
         });
       });
-      // REU/VIS a tarifa de venta (mismo criterio que el EDP)
+      // REU/VIS a tarifa de venta (mismo criterio que el EDP).
+      // Centros de gestión interna (p.gestion) NUNCA generan facturación.
       horasRegistradas.forEach(h => {
+        if (p.gestion) return;
         if (h.proyectoId !== p.id) return;
         if (h.tipo !== 'REU' && h.tipo !== 'VIS') return;
         const mes = h.mesRegistro || (() => { const f = parseLocalDate(h.fecha); return `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}`; })();
@@ -5800,6 +5802,7 @@ ${cuerpo}
       if (filterProyecto !== 'all' && hora.proyectoId !== filterProyecto) return;
 
       const proyecto = proyectos.find(p => p.id === hora.proyectoId);
+      if (proyecto && proyecto.gestion) return; // centro de gestión interna: nunca facturable
       const proyectoNombre = proyecto ? proyecto.nombre : hora.proyectoId;
       const colHora = profesionales.find(c => String(c.id) === String(hora.profesionalId));
       const tarifaRol = tarifas.find(t => t.id === ((colHora && colHora.rolTarifa) || 'proyectista'));
