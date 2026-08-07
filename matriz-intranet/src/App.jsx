@@ -986,7 +986,7 @@ export default function MatrizIntranet() {
     const asignados = currentColaborador.proyectosAsignados || [];
     return asignados.includes(p.id); // Solo ve proyectos asignados
   });
-  const proyectosActivosVisibles = proyectosVisibles.filter(p => !p.estado || p.estado?.toLowerCase() === 'activo');
+  const proyectosActivosVisibles = proyectosVisibles.filter(p => !p.gestion && (!p.estado || p.estado?.toLowerCase() === 'activo'));
 
   // ============================================
   // FIRESTORE SUBSCRIPTIONS
@@ -2068,11 +2068,11 @@ export default function MatrizIntranet() {
                 <div className="flex items-center gap-3 sm:gap-4 text-xs text-neutral-500 dark:text-neutral-400">
                   <span className="flex items-center gap-1">
                     <Calendar className="w-3 h-3" />
-                    {parseLocalDate(proyecto.inicio).toLocaleDateString('es-CL')}
+                    {proyecto.inicio ? parseLocalDate(proyecto.inicio).toLocaleDateString('es-CL') : '—'}
                   </span>
                   <span className="flex items-center gap-1">
                     <TrendingUp className="w-3 h-3" />
-                    {proyecto.avance.toFixed(1)}%
+                    {(Number(proyecto.avance) || 0).toFixed(1)}%
                   </span>
                 </div>
 
