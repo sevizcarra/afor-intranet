@@ -3050,7 +3050,7 @@ ${pendientes.length ? `<h3>Facturación pendiente de pago</h3><table><thead><tr>
               const filasBH = eg.salidas.map(s => `<tr class="egreso"><td colspan="2">− BH ${s.col.nombre} · ${s.horas.toFixed(1)} h HsH</td><td class="r">−${s.uf.toFixed(1)}</td><td colspan="3" class="r rojo">−${num(s.monto)}</td><td colspan="2"></td><td class="c estado">${s.reg ? 'registrada' : 'simulada'}</td></tr>`).join('');
               const filasImp = `<tr class="egreso"><td colspan="3">− IVA por pagar al SII</td><td colspan="3" class="r rojo">−${num(sub.ivaCLP)}</td><td colspan="2"></td><td class="c estado">egreso SII</td></tr>` +
                 `<tr class="egreso"><td colspan="3">− PPM · ${finanzasConfig.ppmTasa}% ventas netas</td><td colspan="3" class="r rojo">−${num(eg.ppmCLP)}</td><td colspan="2"></td><td class="c estado">egreso SII</td></tr>`;
-              const filaReparto = `<tr class="reparto"><td colspan="3">Disponible para reparto</td><td colspan="3" class="r cifra">${num(eg.reparto)}</td><td colspan="3" class="r socios">50/50 · ${num(Math.round(eg.reparto / 2))} c/u</td></tr>`;
+              const filaReparto = `<tr class="reparto"><td colspan="3">Disponible para reparto (montos brutos)</td><td colspan="3" class="r cifra">${num(eg.reparto)}</td><td colspan="3" class="r socios">50/50 · ${num(Math.round(eg.reparto / 2))} c/u bruto · líq. si boletea ${num(Math.round((eg.reparto / 2) * (1 - (parseFloat(finanzasConfig.retencionBH) || 0) / 100)))}</td></tr>`;
               return `<tr class="mes"><td colspan="9">${nombreMes(mes)}</td></tr>` + filasP + filaSub + filasBH + filasImp + filaReparto;
             }).join('');
             pw.document.write(`<html><head><title>Consolidado mensual — AFOR</title><style>
@@ -3219,11 +3219,19 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
                         );
                         filasProy.push(
                           <tr key={`${mes}_reparto`} className="border-b-2 border-neutral-300 dark:border-neutral-600">
-                            <td className="py-2 pl-3 text-neutral-800 dark:text-neutral-100 text-xs font-medium" colSpan={3}>= Disponible para reparto (total − IVA − PPM − BH, antes de compras)</td>
+                            <td className="py-2 pl-3 text-neutral-800 dark:text-neutral-100 text-xs font-medium" colSpan={3}>
+                              = Disponible para reparto (total − IVA − PPM − BH, antes de compras)
+                              <span className="block text-[10px] text-neutral-400 font-normal mt-0.5">Montos BRUTOS — quien boletea su parte recibe el líquido y la retención queda como anticipo de SU impuesto</span>
+                            </td>
                             <td className={`py-2 text-right font-bold ${eg.reparto < 0 ? 'text-red-600' : 'text-neutral-800 dark:text-neutral-100'}`} colSpan={3}>{ufHoy ? fmtCLP(eg.reparto) : '—'}</td>
                             <td colSpan={2}></td>
                             <td className="py-2 text-center">
-                              <span className="text-[10px] font-medium rounded-full px-2 py-0.5 bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300" title="50% Fabián · 50% Sebastián">{ufHoy ? `${fmtCLP(Math.round(eg.reparto / 2))} c/u` : '50/50'}</span>
+                              {ufHoy ? (
+                                <div className="inline-flex flex-col items-center gap-0.5">
+                                  <span className="text-[10px] font-medium rounded-full px-2 py-0.5 bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">{fmtCLP(Math.round(eg.reparto / 2))} c/u bruto</span>
+                                  <span className="text-[9px] text-neutral-400">líq. si boletea: {fmtCLP(Math.round((eg.reparto / 2) * (1 - (parseFloat(finanzasConfig.retencionBH) || 0) / 100)))}</span>
+                                </div>
+                              ) : <span className="text-[10px] text-neutral-400">50/50</span>}
                             </td>
                           </tr>
                         );
