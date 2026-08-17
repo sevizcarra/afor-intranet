@@ -211,7 +211,7 @@ export const parsearCertificadoF29 = (lineas) => {
   if (!periodo) avisos.push('No se detectó el período tributario — verifica el mes');
 
   let folio = null;
-  m = texto.match(/FOLIO\s*:?\s*(\d{4,15})/i);
+  m = texto.match(/FOLIO\s+DECLARACI[OÓ]N\s*N?[°ºO]?\s*:?\s*(\d{4,15})/i) || texto.match(/FOLIO\s*:?\s*(\d{4,15})/i);
   if (m) folio = m[1];
 
   const fecha = parseFechaTexto(texto);
@@ -222,13 +222,18 @@ export const parsearCertificadoF29 = (lineas) => {
     return ms.length ? ms[ms.length - 1] : null;
   };
   let total = null;
-  for (const patron of [/TOTAL\s+PAGADO/i, /MONTO\s+PAGADO/i, /TOTAL\s+A\s+PAGAR/i, /PAGO\s+TOTAL/i, /TOTAL\s+DECLARADO/i]) {
-    const linea = lineas.find(l => patron.test(l));
-    if (linea) { total = montoDeLinea(linea); if (total) break; }
+  // El certificado del SII expresa el total en el Código 91 (total a pagar del F29)
+  m = texto.match(/C[oó]digo\s*91\s*:?\s*\$?\s*([\d.]+)/i);
+  if (m) total = parseMonto(m[1]);
+  if (!total) {
+    for (const patron of [/TOTAL\s+PAGADO/i, /MONTO\s+PAGADO/i, /TOTAL\s+A\s+PAGAR/i, /PAGO\s+TOTAL/i, /TOTAL\s+DECLARADO/i]) {
+      const linea = lineas.find(l => patron.test(l));
+      if (linea) { total = montoDeLinea(linea); if (total) break; }
+    }
   }
   if (!total) {
-    // último recurso: el monto más grande del documento
-    const todos = lineas.map(montoDeLinea).filter(Boolean);
+    // último recurso: el monto mayor del documento, excluyendo folios y números absurdos
+    const todos = lineas.filter(l => !/FOLIO/i.test(l)).map(montoDeLinea).filter(n => n && n < 500000000);
     if (todos.length) { total = Math.max(...todos); avisos.push('Total tomado del monto mayor del documento — verifícalo'); }
     else avisos.push('No se detectó el monto pagado');
   }
