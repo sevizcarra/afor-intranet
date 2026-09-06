@@ -8629,15 +8629,26 @@ ${cotHtml}
                                     {d.nombre || d.name}
                                     {d.frozen && <Snowflake className="w-3 h-3 inline ml-1 text-blue-400" />}
                                   </td>
-                                  <td className={`p-2 text-center ${d.frozen ? 'text-neutral-400' : d.status?.sentRevADate ? 'text-green-600' : 'text-neutral-400 dark:text-neutral-500'}`}>
-                                    {d.frozen ? '-' : d.status?.sentRevADate ? formatDateFull(d.status.sentRevADate) : '-'}
-                                  </td>
-                                  <td className={`p-2 text-center ${d.frozen ? 'text-neutral-400' : d.status?.sentRevBDate ? 'text-green-600' : 'text-neutral-400 dark:text-neutral-500'}`}>
-                                    {d.frozen ? '-' : d.status?.sentRevBDate ? formatDateFull(d.status.sentRevBDate) : '-'}
-                                  </td>
-                                  <td className={`p-2 text-center ${d.frozen ? 'text-neutral-400' : d.status?.sentRev0Date ? 'text-green-600' : 'text-neutral-400 dark:text-neutral-500'}`}>
-                                    {d.frozen ? '-' : d.status?.sentRev0Date ? formatDateFull(d.status.sentRev0Date) : '-'}
-                                  </td>
+                                  {['sentRevADate', 'sentRevBDate', 'sentRev0Date'].map(dk => (
+                                    <td key={dk} className={`p-2 text-center ${d.frozen ? 'text-neutral-400' : d.status?.[dk] ? 'text-green-600' : 'text-neutral-400 dark:text-neutral-500'}`}>
+                                      {d.frozen ? '-' : d.status?.[dk] ? (
+                                        isAdmin ? (
+                                          <input
+                                            type="date"
+                                            value={d.status[dk]}
+                                            title="Editar fecha real de envío — el EDP y la curva S se recalculan solos"
+                                            onChange={e => {
+                                              const v = e.target.value;
+                                              if (!v) return;
+                                              const key = `${selectedProject}_${d.id}`;
+                                              setStatusData(prev => ({ ...prev, [key]: { ...prev[key], [dk]: v } }));
+                                            }}
+                                            className="bg-transparent border border-transparent hover:border-orange-300 focus:border-orange-500 rounded px-1 py-0.5 text-green-600 dark:text-green-400 text-xs w-[112px] text-center cursor-pointer dark:[color-scheme:dark]"
+                                          />
+                                        ) : formatDateFull(d.status[dk])
+                                      ) : '-'}
+                                    </td>
+                                  ))}
                                   <td className="p-2 text-center">
                                     {d.frozen ? (
                                       <DashboardBadge variant="default">CONGELADO</DashboardBadge>
