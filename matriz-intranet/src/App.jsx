@@ -167,17 +167,19 @@ const DEFAULT_RECETAS = [
 // ============================================
 // MOTOR DE CÁLCULO COT
 // ============================================
+const numUF = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+
 const calcPrecioVenta = (receta, tarifas) => {
   return Object.entries(receta.hh).reduce((sum, [rolId, horas]) => {
     const tarifa = tarifas.find(t => t.id === rolId);
-    return sum + (horas * (tarifa?.tarifaVenta || 0));
+    return sum + (numUF(horas) * numUF(tarifa?.tarifaVenta));
   }, 0);
 };
 
 const calcCostoInterno = (receta, tarifas) => {
   return Object.entries(receta.hh).reduce((sum, [rolId, horas]) => {
     const tarifa = tarifas.find(t => t.id === rolId);
-    return sum + (horas * (tarifa?.tarifaCosto || 0));
+    return sum + (numUF(horas) * numUF(tarifa?.tarifaCosto));
   }, 0);
 };
 
@@ -1407,6 +1409,7 @@ export default function MatrizIntranet() {
   // Motor paramétrico COT
   const [cotSimplificado, setCotSimplificado] = useState(false); // factor 0.8
   const [cotDescuento, setCotDescuento] = useState(0); // % descuento lanzamiento
+  const [cotRevAdicPct, setCotRevAdicPct] = useState(30); // % valorización de revisiones adicionales (null = texto legacy REV_P)
   const [tarifas, setTarifas] = useState(DEFAULT_TARIFAS);
   const [recetas, setRecetas] = useState(DEFAULT_RECETAS);
 
@@ -2546,7 +2549,7 @@ export default function MatrizIntranet() {
         const esCobroUnico = tipo.includes('REU INT') || tipo.includes('REU CTTAL');
         const receta = matchReceta(tipo, recetasCot);
         if (receta) costo += calcCostoInterno(receta, tarifasCot) * cant;
-        const precioUnit = esCobroUnico ? 1 : (receta ? calcPrecioVenta(receta, tarifasCot) : 20);
+        const precioUnit = receta ? calcPrecioVenta(receta, tarifasCot) : (esCobroUnico ? 1 : 0);
         venta += precioUnit * cant * ((esCobroUnico || esVisita) ? 1 : revFactor);
       });
       venta = venta * (cot.simplificado ? 0.8 : 1) * (1 - ((cot.descuento || 0) / 100));
@@ -6110,7 +6113,7 @@ ${cuerpo}
                         const esVisita = t.includes('VIS');
                         const esCobroUnico = t.includes('REU INT') || t.includes('REU CTTAL');
                         const rec = matchReceta(t, cotRecetas);
-                        const precioUnit = esCobroUnico ? 1 : (rec ? calcPrecioVenta(rec, cotTarifas) : 20);
+                        const precioUnit = rec ? calcPrecioVenta(rec, cotTarifas) : (esCobroUnico ? 1 : 0);
                         return sum + (precioUnit * cant * ((esCobroUnico || esVisita) ? 1 : revFactor));
                       }, 0) : 0;
                       const fSimp = (cot.simplificado) ? 0.8 : 1.0;
@@ -6187,7 +6190,7 @@ ${cuerpo}
                                     setCotFirmante(cot.firmante || 'sav');
                                     setCotRevAEnabled(cot.revAEnabled !== false); setCotRevBEnabled(cot.revBEnabled !== false); setCotRev0Enabled(cot.rev0Enabled !== false);
                                     setCotRevAPercent(cot.revAPercent ?? 70); setCotRevBPercent(cot.revBPercent ?? 20); setCotRev0Percent(cot.rev0Percent ?? 10);
-                                    setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0);
+                                    setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0); setCotRevAdicPct(cot.revAdicPct !== undefined ? cot.revAdicPct : null);
                                     // Usar tarifas/recetas vigentes al momento de crear la COT (integridad histórica)
                                     let snapT = null, snapR = null;
                                     try { snapT = cot.tarifasSnapshot ? (typeof cot.tarifasSnapshot === 'string' ? JSON.parse(cot.tarifasSnapshot) : cot.tarifasSnapshot) : null; } catch (e) { snapT = null; }
@@ -6216,7 +6219,7 @@ ${cuerpo}
                                     setCotFirmante(cot.firmante || 'sav');
                                     setCotRevAEnabled(cot.revAEnabled !== false); setCotRevBEnabled(cot.revBEnabled !== false); setCotRev0Enabled(cot.rev0Enabled !== false);
                                     setCotRevAPercent(cot.revAPercent ?? 70); setCotRevBPercent(cot.revBPercent ?? 20); setCotRev0Percent(cot.rev0Percent ?? 10);
-                                    setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0);
+                                    setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0); setCotRevAdicPct(cot.revAdicPct !== undefined ? cot.revAdicPct : null);
                                     setCotViewingId(cot._docId);
                                     setCotMode('editar');
                                   }}
@@ -6240,7 +6243,7 @@ ${cuerpo}
                                     setCotFirmante(cot.firmante || 'sav');
                                     setCotRevAEnabled(cot.revAEnabled !== false); setCotRevBEnabled(cot.revBEnabled !== false); setCotRev0Enabled(cot.rev0Enabled !== false);
                                     setCotRevAPercent(cot.revAPercent ?? 70); setCotRevBPercent(cot.revBPercent ?? 20); setCotRev0Percent(cot.rev0Percent ?? 10);
-                                    setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0);
+                                    setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0); setCotRevAdicPct(cot.revAdicPct !== undefined ? cot.revAdicPct : null);
                                     setCotViewingId(null);
                                     setCotMode('crear');
                                     showNotification('success', 'Cotización duplicada — edita y guarda como nueva');
@@ -6494,6 +6497,7 @@ ${cuerpo}
                       <div>
                         <p className="text-neutral-600 dark:text-neutral-300 font-medium">Haz clic para subir</p>
                         <p className="text-neutral-500 dark:text-neutral-400 text-sm mt-1">o arrastra tu archivo Excel aquí</p>
+                        <p className="text-amber-600 text-xs mt-2">⚠ VIS, REU INT y REU CTTAL: la CANTIDAD se carga en HORAS (ej: 27 horas de reunión, no 27 reuniones)</p>
                       </div>
                     )}
                   </label>
@@ -6549,6 +6553,16 @@ ${cuerpo}
                     <span className="text-neutral-500 text-sm">% (visible en COT cliente)</span>
                   </div>
                 </div>
+                <div>
+                  <label className="block text-sm font-semibold text-neutral-800 dark:text-neutral-100 mb-1">Revisiones adicionales</label>
+                  <div className="flex items-center gap-2">
+                    <input type="number" value={cotRevAdicPct ?? ''} placeholder="—"
+                      onChange={e => setCotRevAdicPct(e.target.value === '' ? null : Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                      className="w-20 text-center px-2 py-1.5 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-orange-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      min="0" max="100" />
+                    <span className="text-neutral-500 text-sm">% del valor del entregable (vacío = texto legacy REV_P)</span>
+                  </div>
+                </div>
               </div>
 
               {/* Forma de pago - Control de revisiones */}
@@ -6592,6 +6606,7 @@ ${cuerpo}
                     // VIS sin factor de revisiones, resto con revFactor
                     const revFactorEst = ((cotRevAEnabled ? cotRevAPercent : 0) + (cotRevBEnabled ? cotRevBPercent : 0) + (cotRev0Enabled ? cotRev0Percent : 0)) / 100;
                     let totalVenta = 0, totalCosto = 0, totalHH = 0, hhPorRol = {};
+                    const sinReceta = [];
                     tarifas.forEach(t => { hhPorRol[t.id] = 0; });
                     const rows = cotExcelData.slice(1).filter(row => row[0] && row[3]);
                     rows.forEach(row => {
@@ -6600,7 +6615,8 @@ ${cuerpo}
                       const esVisita = tipo.includes('VIS');
                       const esCobroUnico = tipo.includes('REU INT') || tipo.includes('REU CTTAL');
                       const receta = matchReceta(tipo, recetas);
-                      const precioUnit = esCobroUnico ? 1 : (receta ? calcPrecioVenta(receta, tarifas) : 20);
+                      if (!receta) sinReceta.push(tipo);
+                      const precioUnit = receta ? calcPrecioVenta(receta, tarifas) : (esCobroUnico ? 1 : 0);
                       totalVenta += precioUnit * cantidad * ((esCobroUnico || esVisita) ? 1 : revFactorEst);
                       if (receta) {
                         totalCosto += calcCostoInterno(receta, tarifas) * cantidad;
@@ -6634,6 +6650,9 @@ ${cuerpo}
                             ))}
                           </div>
                         </div>
+                        {sinReceta.length > 0 && (
+                          <p className="text-xs text-red-600 text-center font-medium">⚠ CLASIFICACIÓN sin receta — valorizada en 0 UF: {[...new Set(sinReceta)].join(', ')}. Corrige el Excel o crea la receta en Config.</p>
+                        )}
                         {cotSimplificado && <p className="text-xs text-blue-600 text-center">Factor simplificado ×0.8 aplicado</p>}
                         {cotDescuento > 0 && <p className="text-xs text-amber-600 text-center">Descuento lanzamiento −{cotDescuento}% aplicado</p>}
                       </div>
@@ -6674,6 +6693,7 @@ ${cuerpo}
                       // Motor paramétrico
                       simplificado: cotSimplificado,
                       descuento: cotDescuento,
+                      revAdicPct: cotRevAdicPct,
                       // Snapshot de tarifas y recetas (para integridad histórica)
                       tarifasSnapshot: JSON.stringify(tarifas),
                       recetasSnapshot: JSON.stringify(recetas),
@@ -6704,7 +6724,7 @@ ${cuerpo}
                       setCotViewingId(null);
                       setCotRevAEnabled(true); setCotRevBEnabled(true); setCotRev0Enabled(true);
                       setCotRevAPercent(70); setCotRevBPercent(20); setCotRev0Percent(10);
-                      setCotSimplificado(false); setCotDescuento(0);
+                      setCotSimplificado(false); setCotDescuento(0); setCotRevAdicPct(30);
                     } else {
                       showNotification('error', 'Error al guardar la cotización');
                     }
@@ -6884,7 +6904,7 @@ ${cotHtml}
                         const esVisita = tipo.includes('VIS');
                         const esCobroUnico = tipo.includes('REU INT') || tipo.includes('REU CTTAL');
                         const receta = matchReceta(tipo, (cotSnapOverride && cotSnapOverride.recetas) || recetas);
-                        const precioUnit = esCobroUnico ? 1 : (receta ? calcPrecioVenta(receta, (cotSnapOverride && cotSnapOverride.tarifas) || tarifas) : 20);
+                        const precioUnit = receta ? calcPrecioVenta(receta, (cotSnapOverride && cotSnapOverride.tarifas) || tarifas) : (esCobroUnico ? 1 : 0);
                         const precioTotal = precioUnit * cantidad;
                         const bg = idx % 2 === 0 ? '#fafaf7' : '#f2f0eb';
                         return (
@@ -6908,7 +6928,7 @@ ${cotHtml}
                               if (esCobroUnico) {
                                 return (
                                   <>
-                                    {enabledRevCount > 0 && <td colSpan={enabledRevCount} style={{ padding: '8px 12px', borderBottom: '1px solid #e8e6e1', textAlign: 'center', color: '#7a7a78', fontSize: '10px', fontStyle: 'italic' }}>Cobro único</td>}
+                                    {enabledRevCount > 0 && <td colSpan={enabledRevCount} style={{ padding: '8px 12px', borderBottom: '1px solid #e8e6e1', textAlign: 'center', color: '#7a7a78', fontSize: '10px', fontStyle: 'italic' }}>{cantidad} hrs</td>}
                                     <td style={{ padding: '8px 12px', borderBottom: '1px solid #e8e6e1', textAlign: 'right', fontWeight: '600', color: '#0a0a0a' }}>{precioTotal.toFixed(1)}</td>
                                   </>
                                 );
@@ -6936,7 +6956,7 @@ ${cotHtml}
                           const esVisita = tipo.includes('VIS');
                           const esCobroUnico = tipo.includes('REU INT') || tipo.includes('REU CTTAL');
                           const receta = matchReceta(tipo, (cotSnapOverride && cotSnapOverride.recetas) || recetas);
-                          const precioUnit = esCobroUnico ? 1 : (receta ? calcPrecioVenta(receta, (cotSnapOverride && cotSnapOverride.tarifas) || tarifas) : 20);
+                          const precioUnit = receta ? calcPrecioVenta(receta, (cotSnapOverride && cotSnapOverride.tarifas) || tarifas) : (esCobroUnico ? 1 : 0);
                           return sum + (precioUnit * cantidad * ((esCobroUnico || esVisita) ? 1 : revFactor));
                         }, 0) : 0;
                         const factorSimp = cotSimplificado ? 0.8 : 1.0;
@@ -6968,18 +6988,21 @@ ${cotHtml}
                                 <td style={{ padding: '6px 12px', textAlign: 'right', fontWeight: '600', fontSize: '12px', color: '#b8470a' }}>−{(subtotalVenta * factorSimp * (cotDescuento / 100)).toFixed(1)} UF</td>
                               </tr>
                             )}
-                            {/* Neto */}
+                            {/* Neto destacado: en servicios profesionales el valor relevante es el neto */}
                             <tr>
-                              <td colSpan={colSpanTotal} style={{ padding: hayAjuste ? '6px 12px' : '10px 12px', textAlign: 'right', fontWeight: '500', fontSize: '12px', color: '#3a3a38', borderTop: hayAjuste ? 'none' : '1px solid #0a0a0a' }}>Neto</td>
-                              <td style={{ padding: hayAjuste ? '6px 12px' : '10px 12px', textAlign: 'right', fontWeight: '600', fontSize: '13px', color: '#0a0a0a', borderTop: hayAjuste ? 'none' : '1px solid #0a0a0a' }}>{subtotalAplicado.toFixed(1)} UF</td>
+                              <td colSpan={colSpanTotal} style={{ padding: '14px 12px', textAlign: 'right', fontWeight: '600', borderTop: '2px solid #0a0a0a', fontSize: '13px', color: '#0a0a0a', textTransform: 'uppercase', letterSpacing: '1px' }}>Honorarios (Neto)</td>
+                              <td style={{ padding: '14px 12px', textAlign: 'right', fontWeight: '700', borderTop: '2px solid #0a0a0a', fontSize: '18px', color: '#0a0a0a' }}>{subtotalAplicado.toFixed(1)} <span style={{ fontSize: '12px', fontWeight: '500', color: '#7a7a78' }}>UF</span></td>
                             </tr>
                             <tr>
-                              <td colSpan={colSpanTotal} style={{ padding: '6px 12px', textAlign: 'right', fontWeight: '500', fontSize: '12px', color: '#7a7a78' }}>IVA (19%)</td>
-                              <td style={{ padding: '6px 12px', textAlign: 'right', fontWeight: '500', fontSize: '12px', color: '#7a7a78' }}>{iva.toFixed(1)} UF</td>
+                              <td colSpan={colSpanTotal} style={{ padding: '6px 12px', textAlign: 'right', fontWeight: '500', fontSize: '11px', color: '#7a7a78' }}>IVA (19%)</td>
+                              <td style={{ padding: '6px 12px', textAlign: 'right', fontWeight: '500', fontSize: '11px', color: '#7a7a78' }}>{iva.toFixed(1)} UF</td>
                             </tr>
                             <tr>
-                              <td colSpan={colSpanTotal} style={{ padding: '14px 12px', textAlign: 'right', fontWeight: '600', borderTop: '2px solid #0a0a0a', fontSize: '13px', color: '#0a0a0a', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Propuesta</td>
-                              <td style={{ padding: '14px 12px', textAlign: 'right', fontWeight: '700', borderTop: '2px solid #0a0a0a', fontSize: '18px', color: '#0a0a0a' }}>{total.toFixed(1)} <span style={{ fontSize: '12px', fontWeight: '500', color: '#7a7a78' }}>UF</span></td>
+                              <td colSpan={colSpanTotal} style={{ padding: '6px 12px 2px', textAlign: 'right', fontWeight: '500', fontSize: '11px', color: '#7a7a78' }}>Total con IVA</td>
+                              <td style={{ padding: '6px 12px 2px', textAlign: 'right', fontWeight: '600', fontSize: '12px', color: '#3a3a38' }}>{total.toFixed(1)} UF</td>
+                            </tr>
+                            <tr>
+                              <td colSpan={colSpanTotal + 1} style={{ padding: '8px 12px 0', textAlign: 'right', fontSize: '8.5px', color: '#a3a3a0', letterSpacing: '0.5px' }}>Honorarios expresados en UF netos — el IVA se aplica según la tasa vigente al momento de facturar.</td>
                             </tr>
                           </>
                         );
@@ -6998,7 +7021,7 @@ ${cotHtml}
                     <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Forma de Pago</span><br/>{[cotRevAEnabled && `REV_A (${cotRevAPercent}%) al envío`, cotRevBEnabled && `REV_B (${cotRevBPercent}%) al envío`, cotRev0Enabled && `${getRevFinalLabel(cotFase)} (${cotRev0Percent}%) al envío`].filter(Boolean).join(', ')}</div>
                     <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Validez de la Oferta</span><br/>90 días corridos desde la fecha de emisión</div>
                     <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Plazo de Entrega</span><br/>A coordinar según alcance del proyecto</div>
-                    <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Revisiones Adicionales</span><br/>Se valorarán al valor de {getRevFinalLabel(cotFase)}</div>
+                    <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Revisiones Adicionales</span><br/>{cotRevAdicPct !== null && cotRevAdicPct !== undefined ? `Se valorarán al ${cotRevAdicPct}% del valor del entregable correspondiente` : `Se valorarán al valor de ${getRevFinalLabel(cotFase)}`}</div>
                   </div>
                 </div>
 
