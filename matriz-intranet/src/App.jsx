@@ -160,6 +160,8 @@ const DEFAULT_RECETAS = [
   { id: 'pla_det', nombre: 'Plano de detalle', tipoMatch: 'PLA DET', hh: { jefe: 0, lider: 2, ingeniero: 6, proyectista: 16, control: 1 } },
   { id: 'doc', nombre: 'Documento (memoria / EETT)', tipoMatch: 'DOC', hh: { jefe: 5, lider: 10, ingeniero: 12, proyectista: 0, control: 3 } },
   { id: 'vis', nombre: 'Visita en terreno (por hora)', tipoMatch: 'VIS', hh: { jefe: 1, lider: 1, ingeniero: 0, proyectista: 0, control: 0 } },
+  { id: 'reu_int', nombre: 'Reunión interna (por hora)', tipoMatch: 'REU INT', hh: { jefe: 0, lider: 1, ingeniero: 0, proyectista: 0, control: 0 } },
+  { id: 'reu_cttal', nombre: 'Reunión contractual (por hora)', tipoMatch: 'REU CTTAL', hh: { jefe: 1, lider: 1, ingeniero: 0, proyectista: 0, control: 0 } },
 ];
 
 // ============================================
