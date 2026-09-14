@@ -6040,6 +6040,18 @@ ${cuerpo}
     const [cotClienteEmail, setCotClienteEmailLocal] = useState(cotClienteEmailRef.current);
     const [cotProyectoNombre, setCotProyectoNombreLocal] = useState(cotProyectoNombreRef.current);
     const setCotCodigo = (val) => { setCotCodigoLocal(val); cotCodigoRef.current = val; };
+    const [cotCodigoManual, setCotCodigoManual] = useState(false);
+    // Correlativo anual: VAF-26XX (26 = año, XX = correlativo del año)
+    const siguienteCodigoCot = () => {
+      const yy = String(new Date().getFullYear()).slice(-2);
+      let max = 0;
+      (cotizaciones || []).forEach(c => {
+        const d = String(c.codigo || '').replace(/\D/g, '');
+        if (d.length >= 4 && d.slice(-4, -2) === yy) max = Math.max(max, parseInt(d.slice(-2), 10) || 0);
+      });
+      return `VAF-${yy}${String(max + 1).padStart(2, '0')}`;
+    };
+    useEffect(() => { if (!cotCodigoRef.current) setCotCodigo(siguienteCodigoCot()); }, []);
     const setCotCliente = (val) => { setCotClienteLocal(val); cotClienteRef.current = val; };
     const setCotClienteRut = (val) => { setCotClienteRutLocal(val); cotClienteRutRef.current = val; };
     const setCotClienteContacto = (val) => { setCotClienteContactoLocal(val); cotClienteContactoRef.current = val; };
@@ -6088,7 +6100,7 @@ ${cuerpo}
               {cotMode === 'lista' ? (
                 <button
                   onClick={() => {
-                    setCotCodigo('');
+                    setCotCodigo(siguienteCodigoCot());
                     setCotCliente('');
                     setCotClienteRut('');
                     setCotClienteContacto('');
@@ -6380,13 +6392,26 @@ ${cuerpo}
                   <label className="block text-neutral-600 dark:text-neutral-300 font-medium text-xs uppercase tracking-wider mb-1">
                     Código Cotización
                   </label>
-                  <input
-                    type="text"
-                    value={cotCodigo}
-                    onChange={e => setCotCodigo(e.target.value)}
-                    placeholder="Ej: COT-2026-001"
-                    className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  />
+                  {cotCodigoManual ? (
+                    <input
+                      type="text"
+                      value={cotCodigo}
+                      autoFocus
+                      onChange={e => setCotCodigo(e.target.value)}
+                      onBlur={() => setCotCodigoManual(false)}
+                      onKeyDown={e => { if (e.key === 'Enter') setCotCodigoManual(false); }}
+                      placeholder="Ej: VAF-2610"
+                      className="w-full px-3 py-2 border border-orange-400 rounded-lg bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                  ) : (
+                    <div className="flex items-center gap-2 px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-neutral-50 dark:bg-neutral-800/50">
+                      <span className="flex-1 font-mono font-medium text-neutral-800 dark:text-neutral-100">{cotCodigo || '—'}</span>
+                      <span className="text-[10px] text-neutral-400 uppercase">auto</span>
+                      <button onClick={() => setCotCodigoManual(true)} title="Editar código manualmente" className="p-1 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded">
+                        <Pencil className="w-3.5 h-3.5 text-neutral-500" />
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-neutral-600 dark:text-neutral-300 font-medium text-xs uppercase tracking-wider mb-1">
@@ -6808,7 +6833,7 @@ ${cuerpo}
                     if (result) {
                       showNotification('success', cotMode === 'editar' ? 'Cotización actualizada' : 'Cotización creada');
                       setCotMode('lista');
-                      setCotCodigo('');
+                      setCotCodigo(siguienteCodigoCot());
                       setCotCliente('');
                       setCotClienteRut('');
                       setCotClienteContacto('');
