@@ -1410,6 +1410,42 @@ export default function MatrizIntranet() {
   const [cotSimplificado, setCotSimplificado] = useState(false); // factor 0.8
   const [cotDescuento, setCotDescuento] = useState(0); // % descuento lanzamiento
   const [cotRevAdicPct, setCotRevAdicPct] = useState(30); // % valorización de revisiones adicionales (null = texto legacy REV_P)
+  const [cotCond, setCotCond] = useState(null); // condiciones comerciales del PDF (null = usar defaults de la cuenta)
+
+  // ===== Condiciones comerciales de la COT (texto libre + defaults de cuenta) =====
+  const genFormaPagoCot = (modalidad, diaEmision, diaCorte, fase) => {
+    if (modalidad === 'mensual') {
+      const partes = [
+        cotRevAEnabled && `${cotRevAPercent}% al envío de REV_A`,
+        cotRevBEnabled && `${cotRevBPercent}% al envío de REV_B`,
+        cotRev0Enabled && `${cotRev0Percent}% a la aprobación en ${getRevFinalLabel(fase)}`
+      ].filter(Boolean).join(', ');
+      return `Facturación mensual contra avance consolidado del proyecto, emitida el día ${diaEmision} de cada mes, considerando el avance registrado hasta el día ${diaCorte}. El avance de cada entregable se reconoce según su estado: ${partes}.`;
+    }
+    return [
+      cotRevAEnabled && `REV_A (${cotRevAPercent}%) al envío`,
+      cotRevBEnabled && `REV_B (${cotRevBPercent}%) al envío`,
+      cotRev0Enabled && `${getRevFinalLabel(fase)} (${cotRev0Percent}%) al envío`
+    ].filter(Boolean).join(', ');
+  };
+  const defaultCotCond = (fase) => finanzasConfig.cotCondDefaults
+    ? JSON.parse(JSON.stringify(finanzasConfig.cotCondDefaults))
+    : {
+        modalidad: 'mensual', diaEmision: 25, diaCorte: 20,
+        formaPago: genFormaPagoCot('mensual', 25, 20, fase),
+        plazoPago: '30 días corridos desde la recepción conforme de la factura, no condicionado a que el contratante perciba pago de su mandante.',
+        validez: '90 días corridos desde la fecha de emisión',
+        plazoEntrega: 'A coordinar según alcance del proyecto'
+      };
+  const legacyCondFromCot = (cot) => ({
+    modalidad: 'entregable', diaEmision: 25, diaCorte: 20,
+    formaPago: [
+      cot.revAEnabled !== false && `REV_A (${cot.revAPercent ?? 70}%) al envío`,
+      cot.revBEnabled !== false && `REV_B (${cot.revBPercent ?? 20}%) al envío`,
+      cot.rev0Enabled !== false && `${getRevFinalLabel(cot.fase)} (${cot.rev0Percent ?? 10}%) al envío`
+    ].filter(Boolean).join(', '),
+    plazoPago: '', validez: '90 días corridos desde la fecha de emisión', plazoEntrega: 'A coordinar según alcance del proyecto'
+  });
   const [tarifas, setTarifas] = useState(DEFAULT_TARIFAS);
   const [recetas, setRecetas] = useState(DEFAULT_RECETAS);
 
@@ -6190,7 +6226,7 @@ ${cuerpo}
                                     setCotFirmante(cot.firmante || 'sav');
                                     setCotRevAEnabled(cot.revAEnabled !== false); setCotRevBEnabled(cot.revBEnabled !== false); setCotRev0Enabled(cot.rev0Enabled !== false);
                                     setCotRevAPercent(cot.revAPercent ?? 70); setCotRevBPercent(cot.revBPercent ?? 20); setCotRev0Percent(cot.rev0Percent ?? 10);
-                                    setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0); setCotRevAdicPct(cot.revAdicPct !== undefined ? cot.revAdicPct : null);
+                                    setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0); setCotRevAdicPct(cot.revAdicPct !== undefined ? cot.revAdicPct : null); setCotCond(cot.condCom ? JSON.parse(JSON.stringify(cot.condCom)) : legacyCondFromCot(cot));
                                     // Usar tarifas/recetas vigentes al momento de crear la COT (integridad histórica)
                                     let snapT = null, snapR = null;
                                     try { snapT = cot.tarifasSnapshot ? (typeof cot.tarifasSnapshot === 'string' ? JSON.parse(cot.tarifasSnapshot) : cot.tarifasSnapshot) : null; } catch (e) { snapT = null; }
@@ -6219,7 +6255,7 @@ ${cuerpo}
                                     setCotFirmante(cot.firmante || 'sav');
                                     setCotRevAEnabled(cot.revAEnabled !== false); setCotRevBEnabled(cot.revBEnabled !== false); setCotRev0Enabled(cot.rev0Enabled !== false);
                                     setCotRevAPercent(cot.revAPercent ?? 70); setCotRevBPercent(cot.revBPercent ?? 20); setCotRev0Percent(cot.rev0Percent ?? 10);
-                                    setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0); setCotRevAdicPct(cot.revAdicPct !== undefined ? cot.revAdicPct : null);
+                                    setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0); setCotRevAdicPct(cot.revAdicPct !== undefined ? cot.revAdicPct : null); setCotCond(cot.condCom ? JSON.parse(JSON.stringify(cot.condCom)) : legacyCondFromCot(cot));
                                     setCotViewingId(cot._docId);
                                     setCotMode('editar');
                                   }}
@@ -6243,7 +6279,7 @@ ${cuerpo}
                                     setCotFirmante(cot.firmante || 'sav');
                                     setCotRevAEnabled(cot.revAEnabled !== false); setCotRevBEnabled(cot.revBEnabled !== false); setCotRev0Enabled(cot.rev0Enabled !== false);
                                     setCotRevAPercent(cot.revAPercent ?? 70); setCotRevBPercent(cot.revBPercent ?? 20); setCotRev0Percent(cot.rev0Percent ?? 10);
-                                    setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0); setCotRevAdicPct(cot.revAdicPct !== undefined ? cot.revAdicPct : null);
+                                    setCotSimplificado(cot.simplificado || false); setCotDescuento(cot.descuento || 0); setCotRevAdicPct(cot.revAdicPct !== undefined ? cot.revAdicPct : null); setCotCond(cot.condCom ? JSON.parse(JSON.stringify(cot.condCom)) : legacyCondFromCot(cot));
                                     setCotViewingId(null);
                                     setCotMode('crear');
                                     showNotification('success', 'Cotización duplicada — edita y guarda como nueva');
@@ -6565,6 +6601,66 @@ ${cuerpo}
                 </div>
               </div>
 
+              {/* Condiciones comerciales del PDF (texto editable por COT) */}
+              <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-600 rounded-lg p-4 space-y-3">
+                {(() => {
+                  const cc = cotCond || defaultCotCond(cotFase);
+                  const up = (campo, valor) => setCotCond({ ...cc, [campo]: valor });
+                  const regen = (m, dEm, dCo) => setCotCond({ ...cc, modalidad: m, diaEmision: dEm, diaCorte: dCo, formaPago: genFormaPagoCot(m, dEm, dCo, cotFase) });
+                  return (
+                    <>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <h4 className="text-neutral-800 dark:text-neutral-100 font-medium text-sm">Condiciones comerciales (PDF)</h4>
+                        <button onClick={async () => {
+                          const ok = await saveFinanzasConfig({ cotCondDefaults: cc });
+                          showNotification(ok ? 'success' : 'error', ok ? 'Guardado como default para nuevas COTs' : 'No se pudo guardar');
+                        }} className="text-xs text-orange-600 hover:text-orange-700 font-medium">Guardar como default de la cuenta</button>
+                      </div>
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <select value={cc.modalidad} onChange={e => regen(e.target.value, cc.diaEmision, cc.diaCorte)}
+                          className="px-2 py-1.5 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500">
+                          <option value="mensual">Facturación mensual consolidada</option>
+                          <option value="entregable">Por entregable (al envío)</option>
+                        </select>
+                        {cc.modalidad === 'mensual' && (
+                          <>
+                            <label className="text-xs text-neutral-500 flex items-center gap-1">Emisión día
+                              <input type="number" min="1" max="31" value={cc.diaEmision}
+                                onChange={e => regen('mensual', Math.max(1, Math.min(31, Number(e.target.value) || 25)), cc.diaCorte)}
+                                className="w-14 text-center px-1 py-1 border border-neutral-300 dark:border-neutral-600 rounded bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100" />
+                            </label>
+                            <label className="text-xs text-neutral-500 flex items-center gap-1">Corte día
+                              <input type="number" min="1" max="31" value={cc.diaCorte}
+                                onChange={e => regen('mensual', cc.diaEmision, Math.max(1, Math.min(31, Number(e.target.value) || 20)))}
+                                className="w-14 text-center px-1 py-1 border border-neutral-300 dark:border-neutral-600 rounded bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100" />
+                            </label>
+                          </>
+                        )}
+                        <span className="text-[11px] text-neutral-400">Cambiar modalidad o días regenera el texto sugerido (editable después).</span>
+                      </div>
+                      <label className="block">
+                        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Forma de Pago</span>
+                        <textarea rows={3} value={cc.formaPago} onChange={e => up('formaPago', e.target.value)} className="w-full px-2 py-1.5 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 mt-1" />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Plazo de Pago</span>
+                        <textarea rows={2} value={cc.plazoPago} onChange={e => up('plazoPago', e.target.value)} placeholder="Ej: 30 días corridos desde la recepción conforme de la factura" className="w-full px-2 py-1.5 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 mt-1" />
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label className="block">
+                          <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Validez de la Oferta</span>
+                          <input type="text" value={cc.validez} onChange={e => up('validez', e.target.value)} className="w-full px-2 py-1.5 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 mt-1" />
+                        </label>
+                        <label className="block">
+                          <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Plazo de Entrega</span>
+                          <input type="text" value={cc.plazoEntrega} onChange={e => up('plazoEntrega', e.target.value)} className="w-full px-2 py-1.5 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 mt-1" />
+                        </label>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
               {/* Forma de pago - Control de revisiones */}
               <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-4">
                 <h4 className="text-orange-800 dark:text-orange-300 font-medium text-sm mb-3">Forma de Pago (por revisiones)</h4>
@@ -6694,6 +6790,7 @@ ${cuerpo}
                       simplificado: cotSimplificado,
                       descuento: cotDescuento,
                       revAdicPct: cotRevAdicPct,
+                      condCom: cotCond ? { ...cotCond } : defaultCotCond(cotFase),
                       // Snapshot de tarifas y recetas (para integridad histórica)
                       tarifasSnapshot: JSON.stringify(tarifas),
                       recetasSnapshot: JSON.stringify(recetas),
@@ -6724,7 +6821,7 @@ ${cuerpo}
                       setCotViewingId(null);
                       setCotRevAEnabled(true); setCotRevBEnabled(true); setCotRev0Enabled(true);
                       setCotRevAPercent(70); setCotRevBPercent(20); setCotRev0Percent(10);
-                      setCotSimplificado(false); setCotDescuento(0); setCotRevAdicPct(30);
+                      setCotSimplificado(false); setCotDescuento(0); setCotRevAdicPct(30); setCotCond(null);
                     } else {
                       showNotification('error', 'Error al guardar la cotización');
                     }
@@ -7017,12 +7114,20 @@ ${cotHtml}
                     <div style={{ width: '28px', height: '2px', background: '#b8470a' }}></div>
                     <div style={{ fontSize: '10px', fontWeight: '600', color: '#b8470a', textTransform: 'uppercase', letterSpacing: '2px' }}>Condiciones Comerciales</div>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 40px', fontSize: '11px', color: '#3a3a38', lineHeight: '1.5' }}>
-                    <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Forma de Pago</span><br/>{[cotRevAEnabled && `REV_A (${cotRevAPercent}%) al envío`, cotRevBEnabled && `REV_B (${cotRevBPercent}%) al envío`, cotRev0Enabled && `${getRevFinalLabel(cotFase)} (${cotRev0Percent}%) al envío`].filter(Boolean).join(', ')}</div>
-                    <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Validez de la Oferta</span><br/>90 días corridos desde la fecha de emisión</div>
-                    <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Plazo de Entrega</span><br/>A coordinar según alcance del proyecto</div>
-                    <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Revisiones Adicionales</span><br/>{cotRevAdicPct !== null && cotRevAdicPct !== undefined ? `Se valorarán al ${cotRevAdicPct}% del valor del entregable correspondiente` : `Se valorarán al valor de ${getRevFinalLabel(cotFase)}`}</div>
-                  </div>
+                  {(() => {
+                    const cc = cotCond || defaultCotCond(cotFase);
+                    return (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 40px', fontSize: '11px', color: '#3a3a38', lineHeight: '1.5' }}>
+                        <div style={{ gridColumn: cc.modalidad === 'mensual' ? '1 / -1' : 'auto' }}><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Forma de Pago</span><br/><span style={{ whiteSpace: 'pre-line' }}>{cc.formaPago}</span></div>
+                        {cc.plazoPago ? (
+                          <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Plazo de Pago</span><br/><span style={{ whiteSpace: 'pre-line' }}>{cc.plazoPago}</span></div>
+                        ) : null}
+                        <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Validez de la Oferta</span><br/>{cc.validez}</div>
+                        <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Plazo de Entrega</span><br/>{cc.plazoEntrega}</div>
+                        <div><span style={{ color: '#0a0a0a', fontWeight: '600' }}>Revisiones Adicionales</span><br/>{cotRevAdicPct !== null && cotRevAdicPct !== undefined ? `Se valorarán al ${cotRevAdicPct}% del valor del entregable correspondiente` : `Se valorarán al valor de ${getRevFinalLabel(cotFase)}`}</div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Separador */}
