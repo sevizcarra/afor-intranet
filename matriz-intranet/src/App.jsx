@@ -3542,14 +3542,31 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
                                 </td>
                                 <td className="py-2 text-right">
                                   {(() => {
+                                    const f = fin.fechas[mes] || {};
+                                    const inputFecha = (campo, valor, etiqueta) => (
+                                      <label className="flex items-center justify-end gap-1 text-[10px] text-neutral-400" title={`Fecha real de ${etiqueta} — el F29 usa la de facturación para ubicar la referencia`}>
+                                        {etiqueta}
+                                        <input type="date" value={valor || ''}
+                                          onChange={async e => {
+                                            const v = e.target.value;
+                                            if (!v) return;
+                                            const ok = await updateProyectoField(p.id, { ['finanzas.fechasEDP.' + mes + '.' + campo]: v });
+                                            showNotification(ok ? 'success' : 'error', ok ? `Fecha de ${etiqueta} ${mes}: ${v}` : 'No se pudo guardar');
+                                          }}
+                                          className="bg-transparent border border-transparent hover:border-orange-300 focus:border-orange-500 rounded px-1 py-0.5 text-xs text-neutral-700 dark:text-neutral-200 w-[118px] cursor-pointer dark:[color-scheme:dark]" />
+                                      </label>
+                                    );
+                                    if (estadoMes === 'borrador') return <span className="text-neutral-400 text-xs">—</span>;
                                     const dias = agingMes(fin, mes);
-                                    if (estadoMes === 'pagado') {
-                                      const fp = (fin.fechas[mes] || {}).pagado;
-                                      return <span className="text-green-600 text-xs">{fp ? `pagado ${parseLocalDate(fp).toLocaleDateString('es-CL')}` : '✓'}</span>;
-                                    }
-                                    if (dias === null) return <span className="text-neutral-400 text-xs">—</span>;
-                                    const color = dias > 60 ? 'text-red-600 font-bold' : dias > 30 ? 'text-amber-600 font-medium' : 'text-neutral-500';
-                                    return <span className={`text-xs ${color}`}>{dias} días</span>;
+                                    const color = dias === null ? 'text-neutral-400' : dias > 60 ? 'text-red-600 font-bold' : dias > 30 ? 'text-amber-600 font-medium' : 'text-neutral-500';
+                                    return (
+                                      <div className="flex flex-col items-end gap-0.5">
+                                        {(estadoMes === 'facturado' || estadoMes === 'pagado') && inputFecha('facturado', f.facturado, 'fact.')}
+                                        {estadoMes === 'pagado' && inputFecha('pagado', f.pagado, 'pago')}
+                                        {estadoMes === 'enviado' && <span className={`text-xs ${color}`}>{dias === null ? '—' : `${dias} días`}</span>}
+                                        {estadoMes === 'facturado' && dias !== null && <span className={`text-[10px] ${color}`}>{dias} días desde facturación</span>}
+                                      </div>
+                                    );
                                   })()}
                                 </td>
                               </tr>
@@ -4041,7 +4058,7 @@ tr.reparto td.socios { font-size: 9px; color: #f97316; font-weight: 600; letter-
                   )}
                   {f29.referenciaEDP.length > 0 && (
                     <div className="mt-2 pt-2 border-t border-dashed border-neutral-200 dark:border-neutral-700">
-                      <p className="text-[10px] text-neutral-400 uppercase mb-1">Referencia de trazabilidad (no suma al F29)</p>
+                      <p className="text-[10px] text-neutral-400 uppercase mb-1">Referencia de trazabilidad (no suma al F29) · ubicada por FECHA DE FACTURACIÓN — editable en la ficha del proyecto</p>
                       {f29.referenciaEDP.map((v, i) => {
                         const respaldada = f29.ventas.some(m => Math.abs((m.neto || 0) - v.netoCLP) <= Math.max(2000, v.netoCLP * 0.02));
                         return (
