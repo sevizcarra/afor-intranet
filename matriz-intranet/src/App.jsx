@@ -1569,6 +1569,23 @@ export default function MatrizIntranet() {
     return () => clearTimeout(timer);
   }, [statusData, firestoreReady]);
 
+  // Corrección puntual de datos (pedida el 20-09-2026, se ejecuta una sola vez):
+  // la fecha de facturación de los EDP de julio de AF2607/AF2608 quedó como el día
+  // del click (02-08); la fecha real de las facturas FAC-07/FAC-08 es 29-07-2026.
+  useEffect(() => {
+    if (!firestoreReady || finanzasConfig.fixFactJul26 || proyectos.length === 0) return;
+    const objetivo = proyectos.filter(pr => ['AF2607', 'AF2608'].includes(pr.id));
+    if (objetivo.length === 0) return;
+    (async () => {
+      for (const pr of objetivo) {
+        if (pr?.finanzas?.fechasEDP?.['2026-07']?.facturado === '2026-08-02') {
+          await updateProyectoField(pr.id, { 'finanzas.fechasEDP.2026-07.facturado': '2026-07-29' });
+        }
+      }
+      await saveFinanzasConfig({ fixFactJul26: true });
+    })();
+  }, [firestoreReady, proyectos, finanzasConfig.fixFactJul26]);
+
   // Función para manejar checkboxes del dashboard
   const handleCheck = (id, field, value) => {
     const today = new Date();
